@@ -1,0 +1,38 @@
+.
+├── .github
+│   ├── ISSUE_TEMPLATE
+│   │   ├── bug_report.yml
+│   │   └── feature_request.yml
+│   ├── PULL_REQUEST_TEMPLATE.md
+│   └── workflows
+│       ├── ci.yml
+│       ├── pr_automation.yml
+│       └── security.yml
+├── .pre-commit-config.yaml
+├── ARCHITECTURE.md
+├── CLAUDE.md
+├── CODE_OF_CONDUCT.md
+├── CONTRIBUTING.md
+├── DEPLOYMENT_GUIDE.md
+├── DESIGN_DECISIONS.md
+├── FAQ.md
+├── GEMINI.md
+├── GOVERNANCE.md
+├── LICENSE.md
+├── MANIFESTO.md
+├── PHILOSOPHY.md
+├── PRINCIPLES.md
+├── README.md
+├── ROADMAP.md
+├── SECURITY.md
+├── STRATEGY.md
+├── STRUCTURE.tree
+├── SUPPORT.md
+├── TROUBLESHOOTING.md
+├── VISION.md
+└── locales
+    ├── README.ja.md
+    ├── README.th.md
+    └── README.zh.md
+
+5 directories, 31 files

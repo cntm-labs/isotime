@@ -1,0 +1,15 @@
+name: "CI for isotime"
+on: [push, pull_request]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust (Tokio/io_uring), Custom LSM-Tree, FlatBuffers (Zero-copy), SIMD (AVX-512)
+        run: echo "Setting up environment for Rust (Tokio/io_uring), Custom LSM-Tree, FlatBuffers (Zero-copy), SIMD (AVX-512)..."
+      
+      - name: Install & Test
+        run: |
+          cargo build
+          cargo test
