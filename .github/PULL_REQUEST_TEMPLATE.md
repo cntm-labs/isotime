@@ -1,8 +1,8 @@
 ### 📝 Description
-Initial bootstrap of isotime repository.
+<!-- Describe what this PR does and why -->
 
 ### 🔗 Related Issues
-Fixes #1
+Fixes #
 
 ### 🛠️ Type of Change
 - [ ] 🚀 New feature
@@ -10,13 +10,15 @@ Fixes #1
 - [ ] 📄 Documentation update
 - [ ] 🧪 Testing
 - [ ] 🔨 Refactoring
+- [ ] ⚙️ CI/CD
 
 ### ✅ Checklist
 - [ ] Tests passed locally
 - [ ] Documentation updated
 - [ ] Code follows project style guidelines
 - [ ] Linked to the appropriate Issue
+- [ ] `cargo fmt` and `cargo clippy` pass
 
-### 🏷️ PR Automation
-- **Assignee:** mrbt
-- **Labels:** feat, rust, storage
+### 🏷️ Metadata
+- **Assignee:** @
+- **Labels:**
