@@ -4,25 +4,27 @@ pub mod sstable;
 pub mod wal;
 
 use crate::storage::memtable::MemTable;
-use crate::storage::wal::WAL;
+use crate::storage::wal::{Wal, WalOp};
 use std::io;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+#[allow(dead_code)]
 pub struct StorageEngine {
     memtable: Arc<MemTable>,
-    wal: Arc<Mutex<WAL>>,
+    wal: Arc<Mutex<Wal>>,
 }
 
+#[allow(dead_code)]
 impl StorageEngine {
     pub fn new<P: AsRef<Path>>(wal_path: P) -> io::Result<Self> {
-        let wal = WAL::new(wal_path)?;
+        let wal = Wal::new(wal_path)?;
         let entries = wal.recover()?;
         let memtable = MemTable::new();
         for entry in entries {
             match entry {
-                wal::WalOp::Put(key, value) => memtable.insert(key, value),
-                wal::WalOp::Delete(key) => memtable.delete(&key),
+                WalOp::Put(key, value) => memtable.insert(key, value),
+                WalOp::Delete(key) => memtable.delete(&key),
             }
         }
 
@@ -36,7 +38,7 @@ impl StorageEngine {
         let mut wal = self
             .wal
             .lock()
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "WAL lock poisoned"))?;
+            .map_err(|_| io::Error::other("WAL lock poisoned"))?;
         wal.append(&key, &value)?;
         self.memtable.insert(key, value);
         Ok(())
@@ -50,7 +52,7 @@ impl StorageEngine {
         let mut wal = self
             .wal
             .lock()
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "WAL lock poisoned"))?;
+            .map_err(|_| io::Error::other("WAL lock poisoned"))?;
         wal.delete(key)?;
         self.memtable.delete(key);
         Ok(())

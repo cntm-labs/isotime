@@ -3,17 +3,20 @@ use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum WalOp {
     Put(Vec<u8>, Vec<u8>),
     Delete(Vec<u8>),
 }
 
-pub struct WAL {
+#[allow(dead_code)]
+pub struct Wal {
     path: PathBuf,
     writer: BufWriter<File>,
 }
 
-impl WAL {
+#[allow(dead_code)]
+impl Wal {
     pub fn new<P: AsRef<Path>>(path: P) -> io::Result<Self> {
         let file = OpenOptions::new().create(true).append(true).open(&path)?;
         Ok(Self {
@@ -100,14 +103,14 @@ mod tests {
         }
 
         {
-            let mut wal = WAL::new(wal_path).unwrap();
+            let mut wal = Wal::new(wal_path).unwrap();
             wal.append(b"key1", b"value1").unwrap();
             wal.append(b"key2", b"value2").unwrap();
             wal.delete(b"key1").unwrap();
         }
 
         {
-            let wal = WAL::new(wal_path).unwrap();
+            let wal = Wal::new(wal_path).unwrap();
             let entries = wal.recover().unwrap();
             assert_eq!(entries.len(), 3);
             assert_eq!(entries[0], WalOp::Put(b"key1".to_vec(), b"value1".to_vec()));
@@ -125,7 +128,7 @@ mod tests {
             fs::remove_file(wal_path).unwrap();
         }
 
-        let wal = WAL::new(wal_path).unwrap();
+        let wal = Wal::new(wal_path).unwrap();
         let entries = wal.recover().unwrap();
         assert!(entries.is_empty());
 

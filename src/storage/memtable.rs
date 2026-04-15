@@ -1,11 +1,12 @@
 use crossbeam_skiplist::SkipMap;
 use std::sync::Arc;
-use std::thread;
 
+#[allow(dead_code)]
 pub struct MemTable {
     map: Arc<SkipMap<Vec<u8>, Vec<u8>>>,
 }
 
+#[allow(dead_code)]
 impl MemTable {
     pub fn new() -> Self {
         Self {
@@ -29,6 +30,7 @@ impl MemTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::thread;
 
     #[test]
     fn test_memtable_insert_get() {
