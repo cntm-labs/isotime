@@ -3,6 +3,7 @@ pub mod sstable;
 pub mod wal;
 
 use crate::storage::memtable::MemTable;
+use crate::storage::sstable::SSTable;
 use crate::storage::wal::{Wal, WalOp};
 use std::io;
 use std::path::Path;
@@ -52,6 +53,12 @@ impl StorageEngine {
             .map_err(|_| io::Error::other("WAL lock poisoned"))?;
         wal.delete(key)?;
         self.memtable.delete(key);
+        Ok(())
+    }
+
+    pub fn flush<P: AsRef<Path>>(&self, sstable_path: P) -> io::Result<()> {
+        let snapshot = self.memtable.snapshot();
+        SSTable::write(sstable_path.as_ref(), snapshot)?;
         Ok(())
     }
 }
@@ -109,7 +116,7 @@ mod tests {
 
         let engine = Arc::new(StorageEngine::new(wal_path).unwrap());
         let num_threads = 4;
-        let num_inserts = 100;
+        let num_inserts = 1000;
         let mut handles = vec![];
 
         for i in 0..num_threads {
@@ -136,5 +143,27 @@ mod tests {
         }
 
         fs::remove_file(wal_path).unwrap();
+    }
+
+    #[test]
+    fn test_storage_engine_flush() {
+        let wal_path = "test_flush.wal";
+        let sst_path = "test_flush.sst";
+        if Path::new(wal_path).exists() {
+            fs::remove_file(wal_path).unwrap();
+        }
+        if Path::new(sst_path).exists() {
+            fs::remove_file(sst_path).unwrap();
+        }
+
+        let engine = StorageEngine::new(wal_path).unwrap();
+        engine.put(b"k1".to_vec(), b"v1".to_vec()).unwrap();
+        engine.flush(sst_path).unwrap();
+
+        let sstable = SSTable::open(Path::new(sst_path)).unwrap();
+        assert_eq!(sstable.get(b"k1").unwrap(), Some(&b"v1"[..]));
+
+        fs::remove_file(wal_path).unwrap();
+        fs::remove_file(sst_path).unwrap();
     }
 }

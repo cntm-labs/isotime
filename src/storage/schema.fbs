@@ -1,0 +1,12 @@
+namespace isotime.storage;
+
+table Entry {
+  key: [ubyte];
+  value: [ubyte];
+}
+
+table SSTableData {
+  entries: [Entry];
+}
+
+root_type SSTableData;

@@ -1,89 +1,81 @@
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::io::{self, Read, Write};
+use std::path::Path;
+
+#[path = "schema_generated.rs"]
+mod schema_generated;
+use schema_generated::isotime::storage as fbs;
+use flatbuffers::FlatBufferBuilder;
 
 pub struct SSTable {
-    path: PathBuf,
-    index: BTreeMap<Vec<u8>, u64>, // Key to offset in file
+    buffer: Vec<u8>,
 }
 
 impl SSTable {
     pub fn write(path: &Path, data: BTreeMap<Vec<u8>, Vec<u8>>) -> io::Result<()> {
-        let file = File::create(path)?;
-        let mut writer = BufWriter::new(file);
+        let mut fbb = FlatBufferBuilder::new();
+        let mut entries = Vec::new();
 
         for (key, value) in data {
-            // Write key length
-            writer.write_all(&(key.len() as u64).to_be_bytes())?;
-            // Write key
-            writer.write_all(&key)?;
-            // Write value length
-            writer.write_all(&(value.len() as u64).to_be_bytes())?;
-            // Write value
-            writer.write_all(&value)?;
+            let key_vec = fbb.create_vector(&key);
+            let value_vec = fbb.create_vector(&value);
+            let entry = fbs::Entry::create(&mut fbb, &fbs::EntryArgs {
+                key: Some(key_vec),
+                value: Some(value_vec),
+            });
+            entries.push(entry);
         }
 
-        writer.flush()?;
+        let entries_vec = fbb.create_vector(&entries);
+        let sstable_data = fbs::SSTableData::create(&mut fbb, &fbs::SSTableDataArgs {
+            entries: Some(entries_vec),
+        });
+
+        fbb.finish(sstable_data, None);
+        let finished_data = fbb.finished_data();
+
+        let mut file = File::create(path)?;
+        file.write_all(finished_data)?;
         Ok(())
     }
 
     pub fn open(path: &Path) -> io::Result<Self> {
-        let file = File::open(path)?;
-        let mut reader = BufReader::new(file);
-        let mut index = BTreeMap::new();
-        let mut current_offset = 0;
+        let mut file = File::open(path)?;
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer)?;
 
-        loop {
-            let mut key_len_buf = [0u8; 8];
-            if let Err(e) = reader.read_exact(&mut key_len_buf) {
-                if e.kind() == io::ErrorKind::UnexpectedEof {
-                    break; // EOF
-                }
-                return Err(e);
-            }
-            let key_len = u64::from_be_bytes(key_len_buf);
-            let mut key = vec![0u8; key_len as usize];
-            reader.read_exact(&mut key)?;
-
-            index.insert(key, current_offset);
-
-            let mut value_len_buf = [0u8; 8];
-            reader.read_exact(&mut value_len_buf)?;
-            let value_len = u64::from_be_bytes(value_len_buf);
-
-            // Skip value for now to populate index quickly
-            reader.seek(SeekFrom::Current(value_len as i64))?;
-
-            current_offset += 8 + key_len + 8 + value_len;
-        }
+        // Basic verification
+        fbs::root_as_sstable_data(&buffer)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid FlatBuffers data: {:?}", e)))?;
 
         Ok(Self {
-            path: path.to_path_buf(),
-            index,
+            buffer,
         })
     }
 
-    pub fn get(&self, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        if let Some(&offset) = self.index.get(key) {
-            let mut file = File::open(&self.path)?;
-            file.seek(SeekFrom::Start(offset))?;
-            let mut reader = BufReader::new(file);
+    pub fn get(&self, key: &[u8]) -> io::Result<Option<&[u8]>> {
+        let sstable_data = fbs::root_as_sstable_data(&self.buffer)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid FlatBuffers data: {:?}", e)))?;
 
-            let mut key_len_buf = [0u8; 8];
-            reader.read_exact(&mut key_len_buf)?;
-            let key_len = u64::from_be_bytes(key_len_buf);
+        if let Some(entries) = sstable_data.entries() {
+            let mut low = 0;
+            let mut high = entries.len();
 
-            // Skip key
-            reader.seek(SeekFrom::Current(key_len as i64))?;
-
-            let mut value_len_buf = [0u8; 8];
-            reader.read_exact(&mut value_len_buf)?;
-            let value_len = u64::from_be_bytes(value_len_buf);
-            let mut value = vec![0u8; value_len as usize];
-            reader.read_exact(&mut value)?;
-
-            return Ok(Some(value));
+            while low < high {
+                let mid = low + (high - low) / 2;
+                let entry = entries.get(mid);
+                let entry_key = entry.key().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Missing key in entry"))?;
+                
+                match entry_key.bytes().cmp(key) {
+                    std::cmp::Ordering::Equal => {
+                        let value = entry.value().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Missing value in entry"))?;
+                        return Ok(Some(value.bytes()));
+                    }
+                    std::cmp::Ordering::Less => low = mid + 1,
+                    std::cmp::Ordering::Greater => high = mid,
+                }
+            }
         }
         Ok(None)
     }
@@ -107,20 +99,20 @@ mod tests {
         data.insert(b"key2".to_vec(), b"value2".to_vec());
         data.insert(b"key3".to_vec(), b"value3".to_vec());
 
-        SSTable::write(&path, data.clone()).expect("Failed to write SSTable");
+        SSTable::write(&path, data).expect("Failed to write SSTable");
 
         let sstable = SSTable::open(&path).expect("Failed to open SSTable");
         assert_eq!(
             sstable.get(b"key1").expect("Failed to get key1"),
-            Some(b"value1".to_vec())
+            Some(&b"value1"[..])
         );
         assert_eq!(
             sstable.get(b"key2").expect("Failed to get key2"),
-            Some(b"value2".to_vec())
+            Some(&b"value2"[..])
         );
         assert_eq!(
             sstable.get(b"key3").expect("Failed to get key3"),
-            Some(b"value3".to_vec())
+            Some(&b"value3"[..])
         );
         assert_eq!(sstable.get(b"key4").expect("Failed to get key4"), None);
 
@@ -141,8 +133,8 @@ mod tests {
         SSTable::write(&path, data).expect("Failed to write");
 
         let sstable = SSTable::open(&path).expect("Failed to open");
-        assert_eq!(sstable.get(b"a").unwrap(), Some(b"1".to_vec()));
-        assert_eq!(sstable.get(b"b").unwrap(), Some(b"2".to_vec()));
+        assert_eq!(sstable.get(b"a").unwrap(), Some(&b"1"[..]));
+        assert_eq!(sstable.get(b"b").unwrap(), Some(&b"2"[..]));
 
         fs::remove_file(&path).unwrap();
     }
@@ -177,7 +169,7 @@ mod tests {
         SSTable::write(&path, data).expect("Failed to write large");
 
         let sstable = SSTable::open(&path).expect("Failed to open large");
-        assert_eq!(sstable.get(b"large").unwrap(), Some(large_value));
+        assert_eq!(sstable.get(b"large").unwrap(), Some(&large_value[..]));
 
         fs::remove_file(&path).unwrap();
     }
