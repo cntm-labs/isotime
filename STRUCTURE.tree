@@ -1,18 +1,10 @@
 .
-├── .github
-│   ├── ISSUE_TEMPLATE
-│   │   ├── bug_report.yml
-│   │   └── feature_request.yml
-│   ├── PULL_REQUEST_TEMPLATE.md
-│   └── workflows
-│       ├── ci.yml
-│       ├── pr_automation.yml
-│       └── security.yml
-├── .pre-commit-config.yaml
 ├── ARCHITECTURE.md
 ├── CLAUDE.md
 ├── CODE_OF_CONDUCT.md
 ├── CONTRIBUTING.md
+├── Cargo.lock
+├── Cargo.toml
 ├── DEPLOYMENT_GUIDE.md
 ├── DESIGN_DECISIONS.md
 ├── FAQ.md
@@ -30,9 +22,15 @@
 ├── SUPPORT.md
 ├── TROUBLESHOOTING.md
 ├── VISION.md
-└── locales
-    ├── README.ja.md
-    ├── README.th.md
-    └── README.zh.md
+├── docs
+│   └── superpowers
+│       └── plans
+│           └── 2026-04-15-initialize-rust-project.md
+├── locales
+│   ├── README.ja.md
+│   ├── README.th.md
+│   └── README.zh.md
+└── src
+    └── main.rs
 
-5 directories, 31 files
+6 directories, 28 files
