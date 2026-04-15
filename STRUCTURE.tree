@@ -22,15 +22,16 @@
 ├── SUPPORT.md
 ├── TROUBLESHOOTING.md
 ├── VISION.md
-├── docs
-│   └── superpowers
-│       └── plans
-│           └── 2026-04-15-initialize-rust-project.md
 ├── locales
 │   ├── README.ja.md
 │   ├── README.th.md
 │   └── README.zh.md
 └── src
-    └── main.rs
+    ├── main.rs
+    └── storage
+        ├── memtable.rs
+        ├── mod.rs
+        ├── sstable.rs
+        └── wal.rs
 
-6 directories, 28 files
+4 directories, 31 files
