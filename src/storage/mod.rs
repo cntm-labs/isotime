@@ -1,6 +1,7 @@
 pub mod memtable;
 pub mod sstable;
 pub mod wal;
+pub mod bloom;
 
 use crate::storage::memtable::MemTable;
 use crate::storage::sstable::SSTable;

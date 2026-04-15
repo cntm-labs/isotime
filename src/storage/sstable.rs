@@ -7,9 +7,11 @@ use std::path::Path;
 mod schema_generated;
 use schema_generated::isotime::storage as fbs;
 use flatbuffers::FlatBufferBuilder;
+use crate::storage::bloom::BloomFilter;
 
 pub struct SSTable {
     buffer: Vec<u8>,
+    bloom_filter: Option<BloomFilter>,
 }
 
 impl SSTable {
@@ -17,7 +19,11 @@ impl SSTable {
         let mut fbb = FlatBufferBuilder::new();
         let mut entries = Vec::new();
 
+        // Create Bloom Filter
+        let mut bloom = BloomFilter::new(data.len().max(1), 0.01);
+
         for (key, value) in data {
+            bloom.add(&key);
             let key_vec = fbb.create_vector(&key);
             let value_vec = fbb.create_vector(&value);
             let entry = fbs::Entry::create(&mut fbb, &fbs::EntryArgs {
@@ -27,9 +33,14 @@ impl SSTable {
             entries.push(entry);
         }
 
+        let bloom_bytes = bloom.to_bytes();
+        let bloom_vec = fbb.create_vector(&bloom_bytes);
+
         let entries_vec = fbb.create_vector(&entries);
         let sstable_data = fbs::SSTableData::create(&mut fbb, &fbs::SSTableDataArgs {
             entries: Some(entries_vec),
+            bloom_filter: Some(bloom_vec),
+            num_hashes: bloom.num_hashes() as u32,
         });
 
         fbb.finish(sstable_data, None);
@@ -46,15 +57,29 @@ impl SSTable {
         file.read_to_end(&mut buffer)?;
 
         // Basic verification
-        fbs::root_as_sstable_data(&buffer)
+        let sstable_data = fbs::root_as_sstable_data(&buffer)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid FlatBuffers data: {:?}", e)))?;
+
+        let bloom_filter = if let (Some(bloom_bytes), num_hashes) = (sstable_data.bloom_filter(), sstable_data.num_hashes()) {
+            Some(BloomFilter::from_vec(bloom_bytes.bytes().to_vec(), num_hashes as usize))
+        } else {
+            None
+        };
 
         Ok(Self {
             buffer,
+            bloom_filter,
         })
     }
 
     pub fn get(&self, key: &[u8]) -> io::Result<Option<&[u8]>> {
+        // Check Bloom Filter first
+        if let Some(ref bloom) = self.bloom_filter {
+            if !bloom.contains(key) {
+                return Ok(None);
+            }
+        }
+
         let sstable_data = fbs::root_as_sstable_data(&self.buffer)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid FlatBuffers data: {:?}", e)))?;
 
@@ -88,8 +113,33 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    fn test_sstable_write_read_with_bloom() {
+        let path = PathBuf::from("test_sstable_bloom.db");
+        if path.exists() {
+            fs::remove_file(&path).unwrap();
+        }
+
+        let mut data = BTreeMap::new();
+        data.insert(b"key1".to_vec(), b"value1".to_vec());
+        data.insert(b"key2".to_vec(), b"value2".to_vec());
+
+        SSTable::write(&path, data).expect("Failed to write SSTable");
+
+        let sstable = SSTable::open(&path).expect("Failed to open SSTable");
+        
+        // Positive cases
+        assert_eq!(sstable.get(b"key1").unwrap(), Some(&b"value1"[..]));
+        assert_eq!(sstable.get(b"key2").unwrap(), Some(&b"value2"[..]));
+        
+        // Negative case (Bloom filter should prune this)
+        assert_eq!(sstable.get(b"non_existent").unwrap(), None);
+
+        fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
     fn test_sstable_write_read() {
-        let path = PathBuf::from("test_sstable_write_read.db");
+        let path = PathBuf::from("test_sstable_write_read_v2.db");
         if path.exists() {
             fs::remove_file(&path).unwrap();
         }
@@ -121,7 +171,7 @@ mod tests {
 
     #[test]
     fn test_sstable_persistence() {
-        let path = PathBuf::from("test_sstable_persistence.db");
+        let path = PathBuf::from("test_sstable_persistence_v2.db");
         if path.exists() {
             fs::remove_file(&path).unwrap();
         }
@@ -141,7 +191,7 @@ mod tests {
 
     #[test]
     fn test_sstable_empty() {
-        let path = PathBuf::from("test_sstable_empty.db");
+        let path = PathBuf::from("test_sstable_empty_v2.db");
         if path.exists() {
             fs::remove_file(&path).unwrap();
         }
@@ -157,7 +207,7 @@ mod tests {
 
     #[test]
     fn test_sstable_large_values() {
-        let path = PathBuf::from("test_sstable_large.db");
+        let path = PathBuf::from("test_sstable_large_v2.db");
         if path.exists() {
             fs::remove_file(&path).unwrap();
         }

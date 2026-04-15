@@ -140,6 +140,8 @@ impl<'a> ::flatbuffers::Follow<'a> for SSTableData<'a> {
 
 impl<'a> SSTableData<'a> {
   pub const VT_ENTRIES: ::flatbuffers::VOffsetT = 4;
+  pub const VT_BLOOM_FILTER: ::flatbuffers::VOffsetT = 6;
+  pub const VT_NUM_HASHES: ::flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -151,6 +153,8 @@ impl<'a> SSTableData<'a> {
     args: &'args SSTableDataArgs<'args>
   ) -> ::flatbuffers::WIPOffset<SSTableData<'bldr>> {
     let mut builder = SSTableDataBuilder::new(_fbb);
+    builder.add_num_hashes(args.num_hashes);
+    if let Some(x) = args.bloom_filter { builder.add_bloom_filter(x); }
     if let Some(x) = args.entries { builder.add_entries(x); }
     builder.finish()
   }
@@ -163,6 +167,20 @@ impl<'a> SSTableData<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<Entry>>>>(SSTableData::VT_ENTRIES, None)}
   }
+  #[inline]
+  pub fn bloom_filter(&self) -> Option<::flatbuffers::Vector<'a, u8>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u8>>>(SSTableData::VT_BLOOM_FILTER, None)}
+  }
+  #[inline]
+  pub fn num_hashes(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(SSTableData::VT_NUM_HASHES, Some(0)).unwrap()}
+  }
 }
 
 impl ::flatbuffers::Verifiable for SSTableData<'_> {
@@ -172,18 +190,24 @@ impl ::flatbuffers::Verifiable for SSTableData<'_> {
   ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
     v.visit_table(pos)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<Entry>>>>("entries", Self::VT_ENTRIES, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u8>>>("bloom_filter", Self::VT_BLOOM_FILTER, false)?
+     .visit_field::<u32>("num_hashes", Self::VT_NUM_HASHES, false)?
      .finish();
     Ok(())
   }
 }
 pub struct SSTableDataArgs<'a> {
     pub entries: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<Entry<'a>>>>>,
+    pub bloom_filter: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u8>>>,
+    pub num_hashes: u32,
 }
 impl<'a> Default for SSTableDataArgs<'a> {
   #[inline]
   fn default() -> Self {
     SSTableDataArgs {
       entries: None,
+      bloom_filter: None,
+      num_hashes: 0,
     }
   }
 }
@@ -196,6 +220,14 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> SSTableDataBuilder<'a, 'b, A>
   #[inline]
   pub fn add_entries(&mut self, entries: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<Entry<'b >>>>) {
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(SSTableData::VT_ENTRIES, entries);
+  }
+  #[inline]
+  pub fn add_bloom_filter(&mut self, bloom_filter: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u8>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(SSTableData::VT_BLOOM_FILTER, bloom_filter);
+  }
+  #[inline]
+  pub fn add_num_hashes(&mut self, num_hashes: u32) {
+    self.fbb_.push_slot::<u32>(SSTableData::VT_NUM_HASHES, num_hashes, 0);
   }
   #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> SSTableDataBuilder<'a, 'b, A> {
@@ -216,6 +248,8 @@ impl ::core::fmt::Debug for SSTableData<'_> {
   fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
     let mut ds = f.debug_struct("SSTableData");
       ds.field("entries", &self.entries());
+      ds.field("bloom_filter", &self.bloom_filter());
+      ds.field("num_hashes", &self.num_hashes());
       ds.finish()
   }
 }

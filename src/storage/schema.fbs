@@ -7,6 +7,8 @@ table Entry {
 
 table SSTableData {
   entries: [Entry];
+  bloom_filter: [ubyte];
+  num_hashes: uint;
 }
 
 root_type SSTableData;
