@@ -1,4 +1,3 @@
-pub mod compaction;
 pub mod memtable;
 pub mod sstable;
 pub mod wal;
@@ -9,13 +8,11 @@ use std::io;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-#[allow(dead_code)]
 pub struct StorageEngine {
     memtable: Arc<MemTable>,
     wal: Arc<Mutex<Wal>>,
 }
 
-#[allow(dead_code)]
 impl StorageEngine {
     pub fn new<P: AsRef<Path>>(wal_path: P) -> io::Result<Self> {
         let wal = Wal::new(wal_path)?;

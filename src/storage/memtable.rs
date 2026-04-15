@@ -1,12 +1,10 @@
 use crossbeam_skiplist::SkipMap;
 use std::sync::Arc;
 
-#[allow(dead_code)]
 pub struct MemTable {
     map: Arc<SkipMap<Vec<u8>, Vec<u8>>>,
 }
 
-#[allow(dead_code)]
 impl MemTable {
     pub fn new() -> Self {
         Self {

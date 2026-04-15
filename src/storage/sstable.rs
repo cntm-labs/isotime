@@ -3,13 +3,11 @@ use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-#[allow(dead_code)]
 pub struct SSTable {
     path: PathBuf,
     index: BTreeMap<Vec<u8>, u64>, // Key to offset in file
 }
 
-#[allow(dead_code)]
 impl SSTable {
     pub fn write(path: &Path, data: BTreeMap<Vec<u8>, Vec<u8>>) -> io::Result<()> {
         let file = File::create(path)?;

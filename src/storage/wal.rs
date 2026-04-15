@@ -3,19 +3,16 @@ use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum WalOp {
     Put(Vec<u8>, Vec<u8>),
     Delete(Vec<u8>),
 }
 
-#[allow(dead_code)]
 pub struct Wal {
     path: PathBuf,
     writer: BufWriter<File>,
 }
 
-#[allow(dead_code)]
 impl Wal {
     pub fn new<P: AsRef<Path>>(path: P) -> io::Result<Self> {
         let file = OpenOptions::new().create(true).append(true).open(&path)?;
