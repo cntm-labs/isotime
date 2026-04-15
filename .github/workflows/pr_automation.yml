@@ -10,7 +10,6 @@ jobs:
     permissions:
       pull-requests: write
       contents: read
-      issues: write
     steps:
       - uses: actions/checkout@v4
       - name: Add Labels
@@ -19,7 +18,7 @@ jobs:
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
           sync-labels: true
       - name: Auto Assign
-        uses: actions-ecosystem/action-add-assignees@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          assignees: "${{ github.actor }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit ${{ github.event.pull_request.number }} --add-assignee "${{ github.actor }}"
