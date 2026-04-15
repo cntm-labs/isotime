@@ -1,0 +1,8 @@
+feat:
+  - any: ['src/**/*']
+rust:
+  - any: ['**/*.rs', '**/Cargo.toml', '**/Cargo.lock']
+docs:
+  - any: ['**/*.md']
+ci:
+  - any: ['.github/workflows/**/*']
