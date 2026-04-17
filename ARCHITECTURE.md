@@ -20,7 +20,7 @@ graph TD
 
   subgraph Reasoning_Layer [Chronos AI]
     Mojo[Mojo Inference]
-  }
+  end
 
   QG <--> SHM
   SHM -- Zero-copy --> Streaming
@@ -29,6 +29,17 @@ graph TD
   LSM --> Disk
   Mojo -- Temporal Query --> LSM
   Disk -- Replay State --> QG
+
+## 📡 SHM Delta Streamer (The Observable Bus)
+
+The SHM Delta Streamer provides a high-performance, lock-free communication channel between the live graph engine (`cntm-graph`) and the storage engine (`isotime`).
+
+- **Lock-Free Ring Buffer:** Implemented in shared memory using atomic head and tail pointers. This ensures that the writer (`cntm-graph`) is never blocked by the reader (`isotime`).
+- **64-byte Aligned Header:** Contains metadata such as magic number, version, capacity, head/tail pointers, and writer PID.
+- **128-byte Fixed Slots:** Each event (`DeltaEvent`) occupies a fixed 128-byte slot, ensuring predictable memory access and cache-line alignment.
+- **CRC64 Integrity:** Every event includes a CRC64 checksum to detect memory corruption or partial writes.
+- **Heartbeat & Stale Detection:** The writer periodically updates a heartbeat timestamp. The reader can detect if the writer has crashed or stalled.
+- **Bus Monitor:** A CLI tool (`isotime-bus-top`) provides real-time visibility into bus lag, throughput, and overflow counts.
 
 ## 🗄️ LSM-Tree Details
 
@@ -39,12 +50,10 @@ The storage engine employs a custom Log-Structured Merge-Tree (LSM-Tree) optimiz
 - **SSTable (Sorted String Table):** On-disk storage format using **FlatBuffers** for zero-copy deserialization. Data is sorted by time and key for efficient range scans.
 - **Bloom Filters:** Each SSTable is accompanied by a Bloom Filter to drastically reduce unnecessary disk reads by checking if a key potentially exists in a file before opening it.
 - **Compaction (TWCS):** Utilizes a Time-Windowed Compaction Strategy to merge smaller SSTables into larger ones, maintaining high read performance and optimizing disk space.
-- **Value Sharing (De-duplication):** SSTables implement block-local value sharing. Identical values within a single SSTable are stored once as a `RawValue` and subsequent occurrences refer to it via `RefValue` offsets, significantly reducing disk footprint for redundant time-series data.
-- **SIMD Delta-Delta Compression:** Values containing sequences of 64-bit integers (e.g., timestamps) are compressed using a SIMD-accelerated Delta-Delta algorithm. It utilizes portable SIMD (`core::simd`) with runtime CPU feature dispatch (AVX2) to achieve high-speed compression and decompression during the flush and read paths.
 
 ## 🛠️ Technology Stack
-- **Programming Languages:** Rust (Nightly)
-- **Tooling & Infrastructure:** Tokio, io_uring, FlatBuffers, SIMD (AVX2/Portable SIMD), LSM-Tree
+- **Programming Languages:** Rust
+- **Tooling & Infrastructure:** Tokio, io_uring, FlatBuffers, SIMD (AVX-512), LSM-Tree, memmap2, crc64
 - **Core Pattern:** Formal Immutability
 - **Strategy:** Bridging active cognition with infinite historical context through causal-aware delta storage.
 

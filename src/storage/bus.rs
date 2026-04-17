@@ -2,6 +2,7 @@ use std::sync::atomic::AtomicU64;
 use memmap2::MmapMut;
 use std::fs::OpenOptions;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[repr(C, align(128))]
 pub struct BusHeader {
@@ -47,6 +48,7 @@ pub struct BusManager {
 impl BusManager {
     pub const MAGIC: u64 = 0x49534F54494D4542; // "ISOTIMEB"
     pub const SLOT_SIZE: usize = 128;
+    pub const HEARTBEAT_TIMEOUT_MS: u64 = 5000;
     
     pub fn new<P: AsRef<Path>>(path: P, capacity: u32) -> std::io::Result<Self> {
         let size = std::mem::size_of::<BusHeader>() + (capacity as usize * Self::SLOT_SIZE);
@@ -74,16 +76,44 @@ impl BusManager {
     }
 
     #[inline]
-    fn header(&self) -> &BusHeader {
+    pub fn header(&self) -> &BusHeader {
         unsafe { &*(self.mmap.as_ptr() as *const BusHeader) }
     }
 
     #[inline]
-    fn slots_mut(&mut self) -> &mut [DeltaEvent] {
+    pub fn slots_mut(&mut self) -> &mut [DeltaEvent] {
         let ptr = unsafe { self.mmap.as_mut_ptr().add(std::mem::size_of::<BusHeader>()) };
         // Ensure ptr is aligned to 128
         assert_eq!(ptr as usize % 128, 0, "Slots pointer must be 128-byte aligned");
         unsafe { std::slice::from_raw_parts_mut(ptr as *mut DeltaEvent, self.header().capacity as usize) }
+    }
+
+    pub fn heartbeat(&self) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        self.header().last_heartbeat.store(now, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn check_stale_writer(&self) -> bool {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let last = self.header().last_heartbeat.load(std::sync::atomic::Ordering::Relaxed);
+        
+        if last > 0 && now - last > Self::HEARTBEAT_TIMEOUT_MS {
+            return true;
+        }
+        false
+    }
+
+    pub fn set_writer_pid(&self, pid: u32) {
+        unsafe {
+            let header_ptr = self.mmap.as_ptr() as *mut BusHeader;
+            (*header_ptr).writer_pid = pid;
+        }
     }
 
     pub fn push(&mut self, mut event: DeltaEvent) -> bool {
@@ -106,6 +136,7 @@ impl BusManager {
 
         self.slots_mut()[index] = event;
         self.header().tail.fetch_add(1, std::sync::atomic::Ordering::Release);
+        self.heartbeat();
         true
     }
 
@@ -166,6 +197,26 @@ mod tests {
         assert_eq!(batch.len(), 1);
         assert_eq!(batch[0].event_id, 1);
         assert_eq!(batch[0].payload[0], 0xAA);
+
+        fs::remove_file(bus_path).unwrap();
+    }
+
+    #[test]
+    fn test_bus_heartbeat() {
+        let bus_path = "test_heartbeat.bin";
+        if Path::new(bus_path).exists() {
+            fs::remove_file(bus_path).unwrap();
+        }
+
+        let bus = BusManager::new(bus_path, 1024).unwrap();
+        assert!(!bus.check_stale_writer());
+        
+        bus.heartbeat();
+        assert!(!bus.check_stale_writer());
+        
+        // Manipulate last_heartbeat to simulate staleness
+        bus.header().last_heartbeat.store(1, std::sync::atomic::Ordering::SeqCst);
+        assert!(bus.check_stale_writer());
 
         fs::remove_file(bus_path).unwrap();
     }
