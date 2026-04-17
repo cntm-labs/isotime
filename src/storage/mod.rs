@@ -1,3 +1,4 @@
+pub mod bus;
 pub mod bloom;
 pub mod compaction;
 pub mod compressor;
