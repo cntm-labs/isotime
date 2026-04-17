@@ -11,7 +11,11 @@ table RefValue {
   offset: uint32;
 }
 
-union ValueType { RawValue, RefValue }
+table HashValue {
+  hash: [ubyte];
+}
+
+union ValueType { RawValue, RefValue, HashValue }
 
 table Entry {
   key: [ubyte];

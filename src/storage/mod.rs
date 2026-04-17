@@ -1,3 +1,4 @@
+pub mod cas;
 pub mod bloom;
 pub mod bus;
 pub mod compaction;
