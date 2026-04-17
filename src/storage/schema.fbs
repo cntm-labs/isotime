@@ -1,14 +1,24 @@
 namespace isotime.storage;
 
+table RawValue {
+  data: [ubyte];
+}
+
+table RefValue {
+  offset: uint32;
+}
+
+union ValueType { RawValue, RefValue }
+
 table Entry {
   key: [ubyte];
-  value: [ubyte];
+  value: ValueType;
 }
 
 table SSTableData {
   entries: [Entry];
   bloom_filter: [ubyte];
-  num_hashes: uint;
+  num_hashes: uint32;
 }
 
 root_type SSTableData;
