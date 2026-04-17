@@ -26,6 +26,7 @@ A specialized time-series storage designed to capture every evolution of the kno
 - 🚀 **Zero-Latency Delta Streaming** — Via Shared Memory (SHM-Native) for instant knowledge propagation.
 - 🛡️ **Nano-Second Delta Compression** — Accelerated by SIMD (AVX-512) to minimize storage footprint without latency.
 - 📊 **Bi-Directional High-Speed Traversal** — Optimized for historical replay and causal reasoning.
+- 🗄️ **High-Performance Storage Engine** — LSM-Tree with Zero-copy FlatBuffers, Bloom Filters, and Time-Windowed Compaction.
 
 ## 🛠️ Quick Start
 

@@ -1,4 +1,5 @@
 use crossbeam_skiplist::SkipMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub struct MemTable {
@@ -22,6 +23,14 @@ impl MemTable {
 
     pub fn delete(&self, key: &[u8]) {
         self.map.remove(key);
+    }
+
+    pub fn snapshot(&self) -> BTreeMap<Vec<u8>, Vec<u8>> {
+        let mut map = BTreeMap::new();
+        for entry in self.map.iter() {
+            map.insert(entry.key().clone(), entry.value().clone());
+        }
+        map
     }
 }
 
@@ -53,6 +62,17 @@ mod tests {
         assert_eq!(memtable.get(b"key1"), Some(b"value1".to_vec()));
         memtable.delete(b"key1");
         assert_eq!(memtable.get(b"key1"), None);
+    }
+
+    #[test]
+    fn test_memtable_snapshot() {
+        let memtable = MemTable::new();
+        memtable.insert(b"k1".to_vec(), b"v1".to_vec());
+        memtable.insert(b"k2".to_vec(), b"v2".to_vec());
+        let snapshot = memtable.snapshot();
+        assert_eq!(snapshot.len(), 2);
+        assert_eq!(snapshot.get(b"k1" as &[u8]), Some(&b"v1".to_vec()));
+        assert_eq!(snapshot.get(b"k2" as &[u8]), Some(&b"v2".to_vec()));
     }
 
     #[test]

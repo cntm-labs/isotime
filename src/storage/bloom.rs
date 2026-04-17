@@ -15,12 +15,12 @@ impl BloomFilter {
         let num_bits = (-(capacity as f64) * fp_rate.ln() / (ln2 * ln2)).ceil() as usize;
         // k = (m / n) * ln(2)
         let num_hashes = ((num_bits as f64 / capacity as f64) * ln2).ceil() as usize;
-        
+
         let num_hashes = num_hashes.max(1);
         // Ensure some bits, round up to multiple of 64
         let num_u64s = (num_bits + 63) / 64;
         let num_u64s = num_u64s.max(1);
-        
+
         Self {
             bits: vec![0; num_u64s],
             num_hashes,
@@ -92,8 +92,14 @@ impl BloomFilter {
         let mut i = 0;
         while i + 8 <= num_hashes {
             let i_vec = u64x8::from_array([
-                i as u64, i as u64 + 1, i as u64 + 2, i as u64 + 3,
-                i as u64 + 4, i as u64 + 5, i as u64 + 6, i as u64 + 7,
+                i as u64,
+                i as u64 + 1,
+                i as u64 + 2,
+                i as u64 + 3,
+                i as u64 + 4,
+                i as u64 + 5,
+                i as u64 + 6,
+                i as u64 + 7,
             ]);
             let h1_vec = u64x8::splat(h1);
             let h2_vec = u64x8::splat(h2);
@@ -101,7 +107,7 @@ impl BloomFilter {
 
             // bit_idx = (h1 + i * h2) % num_bits
             let bit_idx_vec = (h1_vec + i_vec * h2_vec) % num_bits_vec;
-            
+
             for j in 0..8 {
                 let bit_idx = bit_idx_vec[j] as usize;
                 let u64_idx = bit_idx / 64;
@@ -167,10 +173,10 @@ mod tests {
         let mut bloom = BloomFilter::new(100, 0.01);
         bloom.add(b"hello");
         bloom.add(b"world");
-        
+
         let bytes = bloom.to_bytes();
         let num_hashes = bloom.num_hashes();
-        
+
         let bloom2 = BloomFilter::from_vec(bytes, num_hashes);
         assert!(bloom2.contains(b"hello"));
         assert!(bloom2.contains(b"world"));
@@ -183,7 +189,7 @@ mod tests {
         // n=1000, p=0.0001 -> k=13
         let mut bloom = BloomFilter::new(1000, 0.0001);
         assert!(bloom.num_hashes() > 8);
-        
+
         bloom.add(b"simd_test");
         assert!(bloom.contains(b"simd_test"));
         assert!(!bloom.contains(b"not_there"));
