@@ -16,3 +16,7 @@ crc64 = "2.0.0"
 [features]
 default = []
 simd = []
+
+[[bin]]
+name = "isotime-bus-top"
+path = "src/bin/bus_top.rs"

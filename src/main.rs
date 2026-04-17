@@ -1,12 +1,13 @@
 #![cfg_attr(feature = "simd", feature(portable_simd))]
-mod storage;
 
-use crate::storage::compaction::Compactor;
-use crate::storage::sstable::SSTable;
-use crate::storage::StorageEngine;
+use isotime::storage::compaction::Compactor;
+use isotime::storage::sstable::SSTable;
+use isotime::storage::StorageEngine;
+use isotime::storage::bus::{BusManager, DeltaEvent};
 use std::fs;
 use std::io;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -54,8 +55,35 @@ async fn main() -> io::Result<()> {
         );
     }
 
-    // --- Demo 3: Compaction Flow ---
-    println!("\n--- Demo 3: Compaction Flow ---");
+    // --- Demo 3: SHM Bus Ingestion ---
+    println!("\n--- Demo 3: SHM Bus Ingestion ---");
+    // Initialize SHM Bus
+    let mut bus = BusManager::new("bus.bin", 1024)?;
+    
+    // Simulate some work
+    println!("Pushing test events to SHM Bus...");
+    for i in 0..10 {
+        let event = DeltaEvent {
+            event_id: 1000 + i as u64,
+            event_type: (i % 3) as u8,
+            _reserved: [0; 7],
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as u64,
+            payload: [i as u8; 96],
+            checksum: 0,
+        };
+        bus.push(event);
+    }
+
+    // Ingest from Bus
+    println!("Ingesting events from SHM Bus into LSM-Tree...");
+    let count = engine.ingest_from_bus(&mut bus, 100)?;
+    println!("Ingested {} events.", count);
+
+    // --- Demo 4: Compaction Flow ---
+    println!("\n--- Demo 4: Compaction Flow ---");
     println!("Compacting all demonstration SSTables into final.db...");
     Compactor::compact(
         &[Path::new(shared_sst), Path::new(compressed_sst)],
@@ -77,6 +105,7 @@ async fn main() -> io::Result<()> {
     let _ = fs::remove_file(shared_sst);
     let _ = fs::remove_file(compressed_sst);
     let _ = fs::remove_file("final.db");
+    let _ = fs::remove_file("bus.bin");
 
     println!("\nisotime: Engine shut down gracefully.");
     Ok(())
