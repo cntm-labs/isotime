@@ -7,7 +7,7 @@ use std::path::Path;
 #[allow(clippy::all)]
 mod schema_generated;
 use crate::storage::bloom::BloomFilter;
-use crate::storage::compressor::{CompressionType, Compressor};
+use crate::storage::compressor::{CompressionPolicy, CompressionType, Compressor};
 use crate::storage::encryption::EncryptionManager;
 use flatbuffers::FlatBufferBuilder;
 use schema_generated::isotime::storage as fbs;
@@ -22,6 +22,7 @@ impl SSTable {
         path: &Path,
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         enc: Option<&EncryptionManager>,
+        policy: CompressionPolicy,
     ) -> io::Result<()> {
         let mut fbb = FlatBufferBuilder::new();
         let mut entries = Vec::new();
@@ -34,17 +35,22 @@ impl SSTable {
             bloom.add(&key);
             let key_vec = fbb.create_vector(&key);
 
-            let (value_type, value_offset) = if let Some(&orig_idx) = value_store.get(&value) {
+            let (value_type, value_offset) = if policy != CompressionPolicy::Fastest
+                && value_store.contains_key(&value)
+            {
+                let &orig_idx = value_store.get(&value).unwrap();
                 // Value seen before, use RefValue
                 let ref_value =
                     fbs::RefValue::create(&mut fbb, &fbs::RefValueArgs { offset: orig_idx });
                 (fbs::ValueType::RefValue, ref_value.as_union_value())
             } else {
-                // New value, use RawValue
-                value_store.insert(value.clone(), i as u32);
+                // New value (or Fastest policy which skips de-dupe), use RawValue
+                if policy != CompressionPolicy::Fastest {
+                    value_store.insert(value.clone(), i as u32);
+                }
 
                 // Compress value
-                let (ctype, compressed_data) = Compressor::compress(&value);
+                let (ctype, compressed_data) = Compressor::compress(&value, policy);
                 let fbs_ctype = match ctype {
                     CompressionType::None => fbs::CompressionType::None,
                     CompressionType::DeltaDelta => fbs::CompressionType::DeltaDelta,
@@ -265,7 +271,7 @@ mod tests {
         data.insert(b"key1".to_vec(), b"value1".to_vec());
         data.insert(b"key2".to_vec(), b"value2".to_vec());
 
-        SSTable::write(&path, data, None).expect("Failed to write SSTable");
+        SSTable::write(&path, data, None, CompressionPolicy::Balanced).expect("Failed to write SSTable");
 
         let sstable = SSTable::open(&path, None).expect("Failed to open SSTable");
 
@@ -292,7 +298,7 @@ mod tests {
             data.insert(format!("key{:03}", i).into_bytes(), common_value.clone());
         }
 
-        SSTable::write(&path, data, None).expect("Failed to write SSTable");
+        SSTable::write(&path, data, None, CompressionPolicy::Balanced).expect("Failed to write SSTable");
 
         let file_size = fs::metadata(&path).unwrap().len();
         assert!(file_size < 4500, "File size too large: {}", file_size);
@@ -320,7 +326,7 @@ mod tests {
         data.insert(b"key2".to_vec(), b"value2".to_vec());
         data.insert(b"key3".to_vec(), b"value3".to_vec());
 
-        SSTable::write(&path, data, None).expect("Failed to write SSTable");
+        SSTable::write(&path, data, None, CompressionPolicy::Balanced).expect("Failed to write SSTable");
 
         let sstable = SSTable::open(&path, None).expect("Failed to open SSTable");
         assert_eq!(
@@ -362,7 +368,7 @@ mod tests {
 
             data.insert(b"timeseries".to_vec(), original_values.clone());
 
-            SSTable::write(&path, data, None).expect("Failed to write SSTable");
+            SSTable::write(&path, data, None, CompressionPolicy::Balanced).expect("Failed to write SSTable");
 
             let sstable = SSTable::open(&path, None).expect("Failed to open SSTable");
             assert_eq!(sstable.get(b"timeseries").unwrap(), Some(original_values));
@@ -382,7 +388,7 @@ mod tests {
         data.insert(b"a".to_vec(), b"1".to_vec());
         data.insert(b"b".to_vec(), b"2".to_vec());
 
-        SSTable::write(&path, data, None).unwrap();
+        SSTable::write(&path, data, None, CompressionPolicy::Balanced).unwrap();
 
         let sstable = SSTable::open(&path, None).unwrap();
         let entries = sstable.all_entries().unwrap();
@@ -407,22 +413,16 @@ mod tests {
         data.insert(b"secret_key".to_vec(), b"secret_value".to_vec());
 
         // Write with encryption
-        SSTable::write(&path, data.clone(), Some(&manager)).unwrap();
+        SSTable::write(&path, data.clone(), Some(&manager), CompressionPolicy::Balanced).unwrap();
 
         // Verify file is actually different from plaintext
         let mut raw_data = Vec::new();
-        File::open(&path)
-            .unwrap()
-            .read_to_end(&mut raw_data)
-            .unwrap();
+        File::open(&path).unwrap().read_to_end(&mut raw_data).unwrap();
         assert!(raw_data.len() > 12); // Nonce + ciphertext
 
         // Read back with encryption
         let sstable = SSTable::open(&path, Some(&manager)).unwrap();
-        assert_eq!(
-            sstable.get(b"secret_key").unwrap(),
-            Some(b"secret_value".to_vec())
-        );
+        assert_eq!(sstable.get(b"secret_key").unwrap(), Some(b"secret_value".to_vec()));
 
         // Attempt to read without encryption (should fail FlatBuffers check)
         assert!(SSTable::open(&path, None).is_err());

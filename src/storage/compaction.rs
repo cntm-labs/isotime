@@ -1,3 +1,4 @@
+use crate::storage::compressor::CompressionPolicy;
 use crate::storage::encryption::EncryptionManager;
 use crate::storage::sstable::SSTable;
 use std::collections::BTreeMap;
@@ -13,6 +14,7 @@ impl Compactor {
         src_paths: &[&Path],
         dest_path: &Path,
         enc: Option<&EncryptionManager>,
+        policy: CompressionPolicy,
     ) -> io::Result<()> {
         let mut merged_data = BTreeMap::new();
 
@@ -24,7 +26,7 @@ impl Compactor {
             }
         }
 
-        SSTable::write(dest_path, merged_data, enc)?;
+        SSTable::write(dest_path, merged_data, enc, policy)?;
         Ok(())
     }
 }
@@ -50,16 +52,22 @@ mod tests {
         let mut data1 = BTreeMap::new();
         data1.insert(b"key1".to_vec(), b"v1".to_vec());
         data1.insert(b"key2".to_vec(), b"v2".to_vec());
-        SSTable::write(&sst1_path, data1, None).unwrap();
+        SSTable::write(&sst1_path, data1, None, CompressionPolicy::Balanced).unwrap();
 
         // SSTable 2: key1=v1_new, key3=v3
         let mut data2 = BTreeMap::new();
         data2.insert(b"key1".to_vec(), b"v1_new".to_vec());
         data2.insert(b"key3".to_vec(), b"v3".to_vec());
-        SSTable::write(&sst2_path, data2, None).unwrap();
+        SSTable::write(&sst2_path, data2, None, CompressionPolicy::Balanced).unwrap();
 
         // Compact
-        Compactor::compact(&[&sst1_path, &sst2_path], &merged_path, None).unwrap();
+        Compactor::compact(
+            &[&sst1_path, &sst2_path],
+            &merged_path,
+            None,
+            CompressionPolicy::Balanced,
+        )
+        .unwrap();
 
         // Verify
         let merged = SSTable::open(&merged_path, None).unwrap();
@@ -90,22 +98,28 @@ mod tests {
         let mut data_a = BTreeMap::new();
         data_a.insert(b"k1".to_vec(), b"v1".to_vec());
         data_a.insert(b"k2".to_vec(), b"v2".to_vec());
-        SSTable::write(&sst_a_path, data_a, None).unwrap();
+        SSTable::write(&sst_a_path, data_a, None, CompressionPolicy::Balanced).unwrap();
 
         // B: k2=v2_updated, k3=v3
         let mut data_b = BTreeMap::new();
         data_b.insert(b"k2".to_vec(), b"v2_updated".to_vec());
         data_b.insert(b"k3".to_vec(), b"v3".to_vec());
-        SSTable::write(&sst_b_path, data_b, None).unwrap();
+        SSTable::write(&sst_b_path, data_b, None, CompressionPolicy::Balanced).unwrap();
 
         // C: k1=v1_updated, k4=v4
         let mut data_c = BTreeMap::new();
         data_c.insert(b"k1".to_vec(), b"v1_updated".to_vec());
         data_c.insert(b"k4".to_vec(), b"v4".to_vec());
-        SSTable::write(&sst_c_path, data_c, None).unwrap();
+        SSTable::write(&sst_c_path, data_c, None, CompressionPolicy::Balanced).unwrap();
 
         // Compact all
-        Compactor::compact(&[&sst_a_path, &sst_b_path, &sst_c_path], &final_path, None).unwrap();
+        Compactor::compact(
+            &[&sst_a_path, &sst_b_path, &sst_c_path],
+            &final_path,
+            None,
+            CompressionPolicy::Balanced,
+        )
+        .unwrap();
 
         // Verify
         let result = SSTable::open(&final_path, None).unwrap();
@@ -142,10 +156,10 @@ mod tests {
 
             let mut data1 = BTreeMap::new();
             data1.insert(b"ts1".to_vec(), original_values.clone());
-            SSTable::write(&sst1_path, data1, None).unwrap();
+            SSTable::write(&sst1_path, data1, None, CompressionPolicy::Balanced).unwrap();
 
             // Compact (even single SSTable to test the path)
-            Compactor::compact(&[&sst1_path], &merged_path, None).unwrap();
+            Compactor::compact(&[&sst1_path], &merged_path, None, CompressionPolicy::Balanced).unwrap();
 
             // Verify
             let merged = SSTable::open(&merged_path, None).unwrap();
