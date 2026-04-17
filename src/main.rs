@@ -11,8 +11,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 async fn main() -> io::Result<()> {
     println!("isotime: High-Throughput Time-Series Engine starting...");
 
-    // Initialize storage engine with WAL path
-    let engine = StorageEngine::new("isotime.wal")?;
+    // Initialize encryption key (normally from env or KMS)
+    let encryption_key = Some([0u8; 32]);
+
+    // Initialize storage engine with WAL path and optional encryption
+    let engine = StorageEngine::new("isotime.wal", encryption_key)?;
 
     // --- Demo 1: Value Sharing (De-duplication) ---
     println!("\n--- Demo 1: Value Sharing (De-duplication) ---");
@@ -45,7 +48,8 @@ async fn main() -> io::Result<()> {
     let compressed_sst = "compressed_simd.db";
     engine.flush(compressed_sst)?;
 
-    let sst = SSTable::open(Path::new(compressed_sst))?;
+    let enc_manager = engine.encryption.as_deref();
+    let sst = SSTable::open(Path::new(compressed_sst), enc_manager)?;
     if let Some(val) = sst.get(b"timeseries-data")? {
         assert_eq!(val, timestamps);
         println!(
@@ -80,19 +84,31 @@ async fn main() -> io::Result<()> {
     let count = engine.ingest_from_bus(&mut bus, 100)?;
     println!("Ingested {} events.", count);
 
-    // --- Demo 4: Compaction Flow ---
-    println!("\n--- Demo 4: Compaction Flow ---");
-    println!("Compacting all demonstration SSTables into final.db...");
+    // --- Demo 4: Compaction Flow (with Encryption) ---
+    println!("\n--- Demo 4: Compaction Flow (with Encryption) ---");
+    println!("Compacting demonstration SSTables into final.db...");
     Compactor::compact(
         &[Path::new(shared_sst), Path::new(compressed_sst)],
         Path::new("final.db"),
+        enc_manager,
     )?;
 
-    let final_sst = SSTable::open(Path::new("final.db"))?;
+    let final_sst = SSTable::open(Path::new("final.db"), enc_manager)?;
     println!(
         "Final SSTable entry count: {}",
         final_sst.all_entries()?.len()
     );
+
+    // Verify encryption on disk
+    let raw_data = fs::read("final.db")?;
+    println!("Size of final.db: {} bytes", raw_data.len());
+    println!("First 12 bytes (Nonce): {:?}", &raw_data[0..12]);
+
+    // Demonstrate decryption failure with wrong key
+    let wrong_key = Some([1u8; 32]);
+    let engine_wrong = StorageEngine::new("wrong.wal", wrong_key)?;
+    assert!(SSTable::open(Path::new("final.db"), engine_wrong.encryption.as_deref()).is_err());
+    println!("Encryption verified: Failed to open with incorrect key.");
 
     // Demo Delete
     engine.delete(b"key-00")?;
@@ -104,6 +120,7 @@ async fn main() -> io::Result<()> {
     let _ = fs::remove_file(compressed_sst);
     let _ = fs::remove_file("final.db");
     let _ = fs::remove_file("bus.bin");
+    let _ = fs::remove_file("wrong.wal");
 
     println!("\nisotime: Engine shut down gracefully.");
     Ok(())
