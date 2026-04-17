@@ -1,3 +1,4 @@
+pub mod compressor;
 pub mod bloom;
 pub mod compaction;
 pub mod memtable;
