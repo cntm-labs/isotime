@@ -1,5 +1,6 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::simd::prelude::*;
 
 pub struct BloomFilter {
     bits: Vec<u64>,
@@ -83,15 +84,46 @@ impl BloomFilter {
         if self.num_bits == 0 {
             return false;
         }
+
         let (h1, h2) = Self::get_hash_pair(key);
-        for i in 0..self.num_hashes {
+        let num_hashes = self.num_hashes;
+
+        // SIMD optimization: process 8 hashes at a time
+        let mut i = 0;
+        while i + 8 <= num_hashes {
+            let i_vec = u64x8::from_array([
+                i as u64, i as u64 + 1, i as u64 + 2, i as u64 + 3,
+                i as u64 + 4, i as u64 + 5, i as u64 + 6, i as u64 + 7,
+            ]);
+            let h1_vec = u64x8::splat(h1);
+            let h2_vec = u64x8::splat(h2);
+            let num_bits_vec = u64x8::splat(self.num_bits as u64);
+
+            // bit_idx = (h1 + i * h2) % num_bits
+            let bit_idx_vec = (h1_vec + i_vec * h2_vec) % num_bits_vec;
+            
+            for j in 0..8 {
+                let bit_idx = bit_idx_vec[j] as usize;
+                let u64_idx = bit_idx / 64;
+                let bit_in_u64 = bit_idx % 64;
+                if (self.bits[u64_idx] & (1 << bit_in_u64)) == 0 {
+                    return false;
+                }
+            }
+            i += 8;
+        }
+
+        // Scalar fallback for remaining hashes
+        while i < num_hashes {
             let bit_idx = (h1.wrapping_add((i as u64).wrapping_mul(h2)) as usize) % self.num_bits;
             let u64_idx = bit_idx / 64;
             let bit_in_u64 = bit_idx % 64;
             if (self.bits[u64_idx] & (1 << bit_in_u64)) == 0 {
                 return false;
             }
+            i += 1;
         }
+
         true
     }
 }
@@ -143,5 +175,17 @@ mod tests {
         assert!(bloom2.contains(b"hello"));
         assert!(bloom2.contains(b"world"));
         assert!(!bloom2.contains(b"rust"));
+    }
+
+    #[test]
+    fn test_bloom_filter_simd_multi_block() {
+        // Force num_hashes > 8
+        // n=1000, p=0.0001 -> k=13
+        let mut bloom = BloomFilter::new(1000, 0.0001);
+        assert!(bloom.num_hashes() > 8);
+        
+        bloom.add(b"simd_test");
+        assert!(bloom.contains(b"simd_test"));
+        assert!(!bloom.contains(b"not_there"));
     }
 }
