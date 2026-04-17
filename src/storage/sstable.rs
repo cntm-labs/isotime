@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
@@ -18,19 +18,43 @@ impl SSTable {
     pub fn write(path: &Path, data: BTreeMap<Vec<u8>, Vec<u8>>) -> io::Result<()> {
         let mut fbb = FlatBufferBuilder::new();
         let mut entries = Vec::new();
+        let mut value_store = HashMap::new();
 
         // Create Bloom Filter
         let mut bloom = BloomFilter::new(data.len().max(1), 0.01);
 
-        for (key, value) in data {
+        for (i, (key, value)) in data.into_iter().enumerate() {
             bloom.add(&key);
             let key_vec = fbb.create_vector(&key);
-            let value_vec = fbb.create_vector(&value);
+            
+            let (value_type, value_offset) = if let Some(&orig_idx) = value_store.get(&value) {
+                // Value seen before, use RefValue
+                let ref_value = fbs::RefValue::create(
+                    &mut fbb,
+                    &fbs::RefValueArgs {
+                        offset: orig_idx,
+                    },
+                );
+                (fbs::ValueType::RefValue, ref_value.as_union_value())
+            } else {
+                // New value, use RawValue
+                value_store.insert(value.clone(), i as u32);
+                let data_vec = fbb.create_vector(&value);
+                let raw_value = fbs::RawValue::create(
+                    &mut fbb,
+                    &fbs::RawValueArgs {
+                        data: Some(data_vec),
+                    },
+                );
+                (fbs::ValueType::RawValue, raw_value.as_union_value())
+            };
+
             let entry = fbs::Entry::create(
                 &mut fbb,
                 &fbs::EntryArgs {
                     key: Some(key_vec),
-                    value: Some(value_vec),
+                    value_type,
+                    value: Some(value_offset),
                 },
             );
             entries.push(entry);
@@ -87,6 +111,42 @@ impl SSTable {
         })
     }
 
+    fn resolve_value<'a>(
+        &'a self,
+        entry: fbs::Entry<'a>,
+        entries: flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<fbs::Entry<'a>>>,
+    ) -> io::Result<&'a [u8]> {
+        match entry.value_type() {
+            fbs::ValueType::RawValue => {
+                let raw = entry.value_as_raw_value().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidData, "Missing RawValue")
+                })?;
+                Ok(raw.data().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidData, "Missing data in RawValue")
+                })?.bytes())
+            }
+            fbs::ValueType::RefValue => {
+                let ref_val = entry.value_as_ref_value().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidData, "Missing RefValue")
+                })?;
+                let orig_idx = ref_val.offset() as usize;
+                if orig_idx >= entries.len() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Invalid RefValue offset",
+                    ));
+                }
+                let orig_entry = entries.get(orig_idx);
+                // Potential recursion check? SSTable::write prevents this by only referring to lower indices.
+                self.resolve_value(orig_entry, entries)
+            }
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Unknown ValueType",
+            )),
+        }
+    }
+
     pub fn get(&self, key: &[u8]) -> io::Result<Option<&[u8]>> {
         // Check Bloom Filter first
         if let Some(ref bloom) = self.bloom_filter {
@@ -115,10 +175,8 @@ impl SSTable {
 
                 match entry_key.bytes().cmp(key) {
                     std::cmp::Ordering::Equal => {
-                        let value = entry.value().ok_or_else(|| {
-                            io::Error::new(io::ErrorKind::InvalidData, "Missing value in entry")
-                        })?;
-                        return Ok(Some(value.bytes()));
+                        let val_bytes = self.resolve_value(entry, entries)?;
+                        return Ok(Some(val_bytes));
                     }
                     std::cmp::Ordering::Less => low = mid + 1,
                     std::cmp::Ordering::Greater => high = mid,
@@ -145,11 +203,7 @@ impl SSTable {
                     .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Missing key"))?
                     .bytes()
                     .to_vec();
-                let value = entry
-                    .value()
-                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Missing value"))?
-                    .bytes()
-                    .to_vec();
+                let value = self.resolve_value(entry, entries)?.to_vec();
                 result.push((key, value));
             }
         }
@@ -184,6 +238,39 @@ mod tests {
 
         // Negative case (Bloom filter should prune this)
         assert_eq!(sstable.get(b"non_existent").unwrap(), None);
+
+        fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn test_sstable_value_sharing() {
+        let path = PathBuf::from("test_value_sharing.db");
+        if path.exists() {
+            fs::remove_file(&path).unwrap();
+        }
+
+        let mut data = BTreeMap::new();
+        let common_value = b"this is a very long value that should be shared".to_vec();
+        for i in 0..100 {
+            data.insert(format!("key{:03}", i).into_bytes(), common_value.clone());
+        }
+
+        SSTable::write(&path, data).expect("Failed to write SSTable");
+        
+        let file_size = fs::metadata(&path).unwrap().len();
+        // 100 entries * approx 10 bytes key = 1000 bytes
+        // 1 unique value = 50 bytes
+        // Bloom filter + metadata
+        // Total should be well under 100 * 50 = 5000 bytes if sharing works.
+        assert!(file_size < 4500, "File size too large: {}", file_size);
+
+        let sstable = SSTable::open(&path).expect("Failed to open SSTable");
+        for i in 0..100 {
+            assert_eq!(
+                sstable.get(format!("key{:03}", i).as_bytes()).unwrap(),
+                Some(&common_value[..])
+            );
+        }
 
         fs::remove_file(&path).unwrap();
     }
