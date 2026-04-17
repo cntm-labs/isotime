@@ -1,7 +1,7 @@
-use std::sync::atomic::AtomicU64;
 use memmap2::MmapMut;
 use std::fs::OpenOptions;
 use std::path::Path;
+use std::sync::atomic::AtomicU64;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[repr(C, align(128))]
@@ -49,17 +49,18 @@ impl BusManager {
     pub const MAGIC: u64 = 0x49534F54494D4542; // "ISOTIMEB"
     pub const SLOT_SIZE: usize = 128;
     pub const HEARTBEAT_TIMEOUT_MS: u64 = 5000;
-    
+
     pub fn new<P: AsRef<Path>>(path: P, capacity: u32) -> std::io::Result<Self> {
         let size = std::mem::size_of::<BusHeader>() + (capacity as usize * Self::SLOT_SIZE);
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(path)?;
         file.set_len(size as u64)?;
         let mut mmap = unsafe { MmapMut::map_mut(&file)? };
-        
+
         // Initialize header if new
         let header = unsafe { &mut *(mmap.as_mut_ptr() as *mut BusHeader) };
         if header.magic_number != Self::MAGIC {
@@ -68,10 +69,14 @@ impl BusManager {
             header.capacity = capacity;
             header.head.store(0, std::sync::atomic::Ordering::SeqCst);
             header.tail.store(0, std::sync::atomic::Ordering::SeqCst);
-            header.overflow_count.store(0, std::sync::atomic::Ordering::SeqCst);
-            header.last_heartbeat.store(0, std::sync::atomic::Ordering::SeqCst);
+            header
+                .overflow_count
+                .store(0, std::sync::atomic::Ordering::SeqCst);
+            header
+                .last_heartbeat
+                .store(0, std::sync::atomic::Ordering::SeqCst);
         }
-        
+
         Ok(Self { mmap })
     }
 
@@ -84,8 +89,14 @@ impl BusManager {
     pub fn slots_mut(&mut self) -> &mut [DeltaEvent] {
         let ptr = unsafe { self.mmap.as_mut_ptr().add(std::mem::size_of::<BusHeader>()) };
         // Ensure ptr is aligned to 128
-        assert_eq!(ptr as usize % 128, 0, "Slots pointer must be 128-byte aligned");
-        unsafe { std::slice::from_raw_parts_mut(ptr as *mut DeltaEvent, self.header().capacity as usize) }
+        assert_eq!(
+            ptr as usize % 128,
+            0,
+            "Slots pointer must be 128-byte aligned"
+        );
+        unsafe {
+            std::slice::from_raw_parts_mut(ptr as *mut DeltaEvent, self.header().capacity as usize)
+        }
     }
 
     pub fn heartbeat(&self) {
@@ -93,7 +104,9 @@ impl BusManager {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        self.header().last_heartbeat.store(now, std::sync::atomic::Ordering::Relaxed);
+        self.header()
+            .last_heartbeat
+            .store(now, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn check_stale_writer(&self) -> bool {
@@ -101,8 +114,11 @@ impl BusManager {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        let last = self.header().last_heartbeat.load(std::sync::atomic::Ordering::Relaxed);
-        
+        let last = self
+            .header()
+            .last_heartbeat
+            .load(std::sync::atomic::Ordering::Relaxed);
+
         if last > 0 && now - last > Self::HEARTBEAT_TIMEOUT_MS {
             return true;
         }
@@ -117,17 +133,25 @@ impl BusManager {
     }
 
     pub fn push(&mut self, mut event: DeltaEvent) -> bool {
-        let head = self.header().head.load(std::sync::atomic::Ordering::Acquire);
-        let tail = self.header().tail.load(std::sync::atomic::Ordering::Acquire);
+        let head = self
+            .header()
+            .head
+            .load(std::sync::atomic::Ordering::Acquire);
+        let tail = self
+            .header()
+            .tail
+            .load(std::sync::atomic::Ordering::Acquire);
         let capacity = self.header().capacity as u64;
 
         if tail >= head + capacity {
-            self.header().overflow_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.header()
+                .overflow_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             return false;
         }
 
         let index = (tail % capacity) as usize;
-        
+
         // Calculate checksum over everything except the checksum field itself
         event.checksum = 0;
         let ptr = &event as *const DeltaEvent as *const u8;
@@ -135,16 +159,24 @@ impl BusManager {
         event.checksum = crc64::crc64(0, data);
 
         self.slots_mut()[index] = event;
-        self.header().tail.fetch_add(1, std::sync::atomic::Ordering::Release);
+        self.header()
+            .tail
+            .fetch_add(1, std::sync::atomic::Ordering::Release);
         self.heartbeat();
         true
     }
 
     pub fn pop_batch(&mut self, limit: usize) -> Vec<DeltaEvent> {
-        let head = self.header().head.load(std::sync::atomic::Ordering::Acquire);
-        let tail = self.header().tail.load(std::sync::atomic::Ordering::Acquire);
+        let head = self
+            .header()
+            .head
+            .load(std::sync::atomic::Ordering::Acquire);
+        let tail = self
+            .header()
+            .tail
+            .load(std::sync::atomic::Ordering::Acquire);
         let capacity = self.header().capacity as u64;
-        
+
         let available = (tail - head) as usize;
         let count = std::cmp::min(available, limit);
         let mut batch = Vec::with_capacity(count);
@@ -152,20 +184,22 @@ impl BusManager {
         for i in 0..count {
             let index = ((head + i as u64) % capacity) as usize;
             let event = self.slots_mut()[index];
-            
+
             // Verify checksum
             let mut event_copy = event;
             event_copy.checksum = 0;
             let ptr = &event_copy as *const DeltaEvent as *const u8;
             let data = unsafe { std::slice::from_raw_parts(ptr, 120) };
             let expected_sum = crc64::crc64(0, data);
-            
+
             if event.checksum == expected_sum {
                 batch.push(event);
             }
         }
 
-        self.header().head.fetch_add(batch.len() as u64, std::sync::atomic::Ordering::Release);
+        self.header()
+            .head
+            .fetch_add(batch.len() as u64, std::sync::atomic::Ordering::Release);
         batch
     }
 }
@@ -210,12 +244,14 @@ mod tests {
 
         let bus = BusManager::new(bus_path, 1024).unwrap();
         assert!(!bus.check_stale_writer());
-        
+
         bus.heartbeat();
         assert!(!bus.check_stale_writer());
-        
+
         // Manipulate last_heartbeat to simulate staleness
-        bus.header().last_heartbeat.store(1, std::sync::atomic::Ordering::SeqCst);
+        bus.header()
+            .last_heartbeat
+            .store(1, std::sync::atomic::Ordering::SeqCst);
         assert!(bus.check_stale_writer());
 
         fs::remove_file(bus_path).unwrap();

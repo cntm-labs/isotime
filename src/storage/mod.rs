@@ -1,15 +1,15 @@
-pub mod bus;
 pub mod bloom;
+pub mod bus;
 pub mod compaction;
 pub mod compressor;
 pub mod memtable;
 pub mod sstable;
 pub mod wal;
 
+use crate::storage::bus::BusManager;
 use crate::storage::memtable::MemTable;
 use crate::storage::sstable::SSTable;
 use crate::storage::wal::{Wal, WalOp};
-use crate::storage::bus::BusManager;
 use std::io;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -70,16 +70,16 @@ impl StorageEngine {
     pub fn ingest_from_bus(&self, bus: &mut BusManager, limit: usize) -> io::Result<usize> {
         let batch = bus.pop_batch(limit);
         let count = batch.len();
-        
+
         for event in batch {
             let key = event.event_id.to_le_bytes().to_vec();
             let mut value = vec![event.event_type];
             value.extend_from_slice(&event.timestamp.to_le_bytes());
             value.extend_from_slice(&event.payload);
-            
+
             self.put(key, value)?;
         }
-        
+
         Ok(count)
     }
 }
