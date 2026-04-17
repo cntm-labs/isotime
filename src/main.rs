@@ -1,5 +1,3 @@
-#![cfg_attr(feature = "simd", feature(portable_simd))]
-
 use isotime::storage::bus::{BusManager, DeltaEvent};
 use isotime::storage::compaction::Compactor;
 use isotime::storage::sstable::SSTable;
