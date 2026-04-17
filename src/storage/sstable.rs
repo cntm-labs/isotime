@@ -6,6 +6,7 @@ use std::path::Path;
 #[path = "schema_generated.rs"]
 mod schema_generated;
 use crate::storage::bloom::BloomFilter;
+use crate::storage::compressor::{Compressor, CompressionType};
 use flatbuffers::FlatBufferBuilder;
 use schema_generated::isotime::storage as fbs;
 
@@ -39,11 +40,20 @@ impl SSTable {
             } else {
                 // New value, use RawValue
                 value_store.insert(value.clone(), i as u32);
-                let data_vec = fbb.create_vector(&value);
+                
+                // Compress value
+                let (ctype, compressed_data) = Compressor::compress(&value);
+                let fbs_ctype = match ctype {
+                    CompressionType::None => fbs::CompressionType::None,
+                    CompressionType::DeltaDelta => fbs::CompressionType::DeltaDelta,
+                };
+
+                let data_vec = fbb.create_vector(&compressed_data);
                 let raw_value = fbs::RawValue::create(
                     &mut fbb,
                     &fbs::RawValueArgs {
                         data: Some(data_vec),
+                        compression: fbs_ctype,
                     },
                 );
                 (fbs::ValueType::RawValue, raw_value.as_union_value())
@@ -115,15 +125,23 @@ impl SSTable {
         &'a self,
         entry: fbs::Entry<'a>,
         entries: flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<fbs::Entry<'a>>>,
-    ) -> io::Result<&'a [u8]> {
+    ) -> io::Result<Vec<u8>> {
         match entry.value_type() {
             fbs::ValueType::RawValue => {
                 let raw = entry.value_as_raw_value().ok_or_else(|| {
                     io::Error::new(io::ErrorKind::InvalidData, "Missing RawValue")
                 })?;
-                Ok(raw.data().ok_or_else(|| {
+                let data = raw.data().ok_or_else(|| {
                     io::Error::new(io::ErrorKind::InvalidData, "Missing data in RawValue")
-                })?.bytes())
+                })?.bytes();
+
+                let ctype = match raw.compression() {
+                    fbs::CompressionType::None => CompressionType::None,
+                    fbs::CompressionType::DeltaDelta => CompressionType::DeltaDelta,
+                    _ => CompressionType::None,
+                };
+
+                Ok(Compressor::decompress(ctype, data))
             }
             fbs::ValueType::RefValue => {
                 let ref_val = entry.value_as_ref_value().ok_or_else(|| {
@@ -137,7 +155,6 @@ impl SSTable {
                     ));
                 }
                 let orig_entry = entries.get(orig_idx);
-                // Potential recursion check? SSTable::write prevents this by only referring to lower indices.
                 self.resolve_value(orig_entry, entries)
             }
             _ => Err(io::Error::new(
@@ -147,7 +164,7 @@ impl SSTable {
         }
     }
 
-    pub fn get(&self, key: &[u8]) -> io::Result<Option<&[u8]>> {
+    pub fn get(&self, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
         // Check Bloom Filter first
         if let Some(ref bloom) = self.bloom_filter {
             if !bloom.contains(key) {
@@ -203,7 +220,7 @@ impl SSTable {
                     .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Missing key"))?
                     .bytes()
                     .to_vec();
-                let value = self.resolve_value(entry, entries)?.to_vec();
+                let value = self.resolve_value(entry, entries)?;
                 result.push((key, value));
             }
         }
@@ -233,8 +250,8 @@ mod tests {
         let sstable = SSTable::open(&path).expect("Failed to open SSTable");
 
         // Positive cases
-        assert_eq!(sstable.get(b"key1").unwrap(), Some(&b"value1"[..]));
-        assert_eq!(sstable.get(b"key2").unwrap(), Some(&b"value2"[..]));
+        assert_eq!(sstable.get(b"key1").unwrap(), Some(b"value1".to_vec()));
+        assert_eq!(sstable.get(b"key2").unwrap(), Some(b"value2".to_vec()));
 
         // Negative case (Bloom filter should prune this)
         assert_eq!(sstable.get(b"non_existent").unwrap(), None);
@@ -258,17 +275,13 @@ mod tests {
         SSTable::write(&path, data).expect("Failed to write SSTable");
         
         let file_size = fs::metadata(&path).unwrap().len();
-        // 100 entries * approx 10 bytes key = 1000 bytes
-        // 1 unique value = 50 bytes
-        // Bloom filter + metadata
-        // Total should be well under 100 * 50 = 5000 bytes if sharing works.
         assert!(file_size < 4500, "File size too large: {}", file_size);
 
         let sstable = SSTable::open(&path).expect("Failed to open SSTable");
         for i in 0..100 {
             assert_eq!(
                 sstable.get(format!("key{:03}", i).as_bytes()).unwrap(),
-                Some(&common_value[..])
+                Some(common_value.clone())
             );
         }
 
@@ -292,19 +305,49 @@ mod tests {
         let sstable = SSTable::open(&path).expect("Failed to open SSTable");
         assert_eq!(
             sstable.get(b"key1").expect("Failed to get key1"),
-            Some(&b"value1"[..])
+            Some(b"value1".to_vec())
         );
         assert_eq!(
             sstable.get(b"key2").expect("Failed to get key2"),
-            Some(&b"value2"[..])
+            Some(b"value2".to_vec())
         );
         assert_eq!(
             sstable.get(b"key3").expect("Failed to get key3"),
-            Some(&b"value3"[..])
+            Some(b"value3".to_vec())
         );
         assert_eq!(sstable.get(b"key4").expect("Failed to get key4"), None);
 
         fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn test_sstable_simd_compression() {
+        #[cfg(feature = "simd")]
+        {
+            let path = PathBuf::from("test_sstable_simd.db");
+            if path.exists() {
+                fs::remove_file(&path).unwrap();
+            }
+
+            let mut data = BTreeMap::new();
+            let mut original_values = Vec::new();
+            let mut curr = 1000u64;
+            let mut step = 10u64;
+            for _ in 0..100 {
+                original_values.extend_from_slice(&curr.to_le_bytes());
+                curr += step;
+                step += 1;
+            }
+
+            data.insert(b"timeseries".to_vec(), original_values.clone());
+
+            SSTable::write(&path, data).expect("Failed to write SSTable");
+
+            let sstable = SSTable::open(&path).expect("Failed to open SSTable");
+            assert_eq!(sstable.get(b"timeseries").unwrap(), Some(original_values));
+
+            fs::remove_file(&path).unwrap();
+        }
     }
 
     #[test]

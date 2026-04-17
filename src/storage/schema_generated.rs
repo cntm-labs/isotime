@@ -11,6 +11,90 @@ pub mod storage {
 
 
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_COMPRESSION_TYPE: i8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_COMPRESSION_TYPE: i8 = 1;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_COMPRESSION_TYPE: [CompressionType; 2] = [
+  CompressionType::None,
+  CompressionType::DeltaDelta,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct CompressionType(pub i8);
+#[allow(non_upper_case_globals)]
+impl CompressionType {
+  pub const None: Self = Self(0);
+  pub const DeltaDelta: Self = Self(1);
+
+  pub const ENUM_MIN: i8 = 0;
+  pub const ENUM_MAX: i8 = 1;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::None,
+    Self::DeltaDelta,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::None => Some("None"),
+      Self::DeltaDelta => Some("DeltaDelta"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for CompressionType {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for CompressionType {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<i8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for CompressionType {
+    type Output = CompressionType;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<i8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for CompressionType {
+  type Scalar = i8;
+  #[inline]
+  fn to_little_endian(self) -> i8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: i8) -> Self {
+    let b = i8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for CompressionType {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    i8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for CompressionType {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_VALUE_TYPE: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MAX_VALUE_TYPE: u8 = 2;
@@ -117,6 +201,7 @@ impl<'a> ::flatbuffers::Follow<'a> for RawValue<'a> {
 
 impl<'a> RawValue<'a> {
   pub const VT_DATA: ::flatbuffers::VOffsetT = 4;
+  pub const VT_COMPRESSION: ::flatbuffers::VOffsetT = 6;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -129,6 +214,7 @@ impl<'a> RawValue<'a> {
   ) -> ::flatbuffers::WIPOffset<RawValue<'bldr>> {
     let mut builder = RawValueBuilder::new(_fbb);
     if let Some(x) = args.data { builder.add_data(x); }
+    builder.add_compression(args.compression);
     builder.finish()
   }
 
@@ -140,6 +226,13 @@ impl<'a> RawValue<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u8>>>(RawValue::VT_DATA, None)}
   }
+  #[inline]
+  pub fn compression(&self) -> CompressionType {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<CompressionType>(RawValue::VT_COMPRESSION, Some(CompressionType::None)).unwrap()}
+  }
 }
 
 impl ::flatbuffers::Verifiable for RawValue<'_> {
@@ -149,18 +242,21 @@ impl ::flatbuffers::Verifiable for RawValue<'_> {
   ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
     v.visit_table(pos)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u8>>>("data", Self::VT_DATA, false)?
+     .visit_field::<CompressionType>("compression", Self::VT_COMPRESSION, false)?
      .finish();
     Ok(())
   }
 }
 pub struct RawValueArgs<'a> {
     pub data: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u8>>>,
+    pub compression: CompressionType,
 }
 impl<'a> Default for RawValueArgs<'a> {
   #[inline]
   fn default() -> Self {
     RawValueArgs {
       data: None,
+      compression: CompressionType::None,
     }
   }
 }
@@ -173,6 +269,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RawValueBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_data(&mut self, data: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u8>>) {
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RawValue::VT_DATA, data);
+  }
+  #[inline]
+  pub fn add_compression(&mut self, compression: CompressionType) {
+    self.fbb_.push_slot::<CompressionType>(RawValue::VT_COMPRESSION, compression, CompressionType::None);
   }
   #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> RawValueBuilder<'a, 'b, A> {
@@ -193,6 +293,7 @@ impl ::core::fmt::Debug for RawValue<'_> {
   fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
     let mut ds = f.debug_struct("RawValue");
       ds.field("data", &self.data());
+      ds.field("compression", &self.compression());
       ds.finish()
   }
 }

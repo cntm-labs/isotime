@@ -1,7 +1,10 @@
 namespace isotime.storage;
 
+enum CompressionType : byte { None = 0, DeltaDelta = 1 }
+
 table RawValue {
   data: [ubyte];
+  compression: CompressionType = None;
 }
 
 table RefValue {
