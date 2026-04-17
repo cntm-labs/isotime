@@ -9,7 +9,7 @@ pub mod wal;
 use crate::storage::memtable::MemTable;
 use crate::storage::sstable::SSTable;
 use crate::storage::wal::{Wal, WalOp};
-use crate::storage::bus::{BusManager};
+use crate::storage::bus::BusManager;
 use std::io;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -87,6 +87,7 @@ impl StorageEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::bus::DeltaEvent;
     use std::fs;
     use std::thread;
 

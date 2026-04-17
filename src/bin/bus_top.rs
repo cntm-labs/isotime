@@ -5,7 +5,7 @@ use std::time::Duration;
 
 fn main() -> io::Result<()> {
     let bus_path = "bus.bin";
-    let mut bus = match BusManager::new(bus_path, 1024) {
+    let bus = match BusManager::new(bus_path, 1024) {
         Ok(b) => b,
         Err(e) => {
             eprintln!("Failed to open bus at {}: {}", bus_path, e);
