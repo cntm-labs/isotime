@@ -20,7 +20,7 @@ impl BloomFilter {
 
         let num_hashes = num_hashes.max(1);
         // Ensure some bits, round up to multiple of 64
-        let num_u64s = (num_bits + 63) / 64;
+        let num_u64s = num_bits.div_ceil(64);
         let num_u64s = num_u64s.max(1);
 
         Self {
@@ -31,7 +31,7 @@ impl BloomFilter {
     }
 
     pub fn from_vec(bits: Vec<u8>, num_hashes: usize) -> Self {
-        let num_u64s = (bits.len() + 7) / 8;
+        let num_u64s = bits.len().div_ceil(8);
         let mut u64_bits = vec![0u64; num_u64s];
         for (i, chunk) in bits.chunks(8).enumerate() {
             let mut val = 0u64;
