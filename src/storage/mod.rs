@@ -1,3 +1,4 @@
+pub mod encryption;
 pub mod bloom;
 pub mod bus;
 pub mod compaction;
