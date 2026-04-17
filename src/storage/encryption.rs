@@ -19,13 +19,13 @@ impl EncryptionManager {
 
     pub fn encrypt(&self, plaintext: &[u8]) -> io::Result<Vec<u8>> {
         let mut nonce_bytes = [0u8; Self::NONCE_SIZE];
-        getrandom(&mut nonce_bytes).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        getrandom(&mut nonce_bytes).map_err(|e| io::Error::other(e.to_string()))?;
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         let ciphertext = self
             .cipher
             .encrypt(nonce, plaintext)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| io::Error::other(e.to_string()))?;
 
         let mut result = Vec::with_capacity(Self::NONCE_SIZE + ciphertext.len());
         result.extend_from_slice(&nonce_bytes);
@@ -44,7 +44,7 @@ impl EncryptionManager {
         let plaintext = self
             .cipher
             .decrypt(nonce, ciphertext)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| io::Error::other(e.to_string()))?;
 
         Ok(plaintext)
     }

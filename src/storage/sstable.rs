@@ -8,6 +8,7 @@ use std::path::Path;
 mod schema_generated;
 use crate::storage::bloom::BloomFilter;
 use crate::storage::compressor::{CompressionType, Compressor};
+use crate::storage::encryption::EncryptionManager;
 use flatbuffers::FlatBufferBuilder;
 use schema_generated::isotime::storage as fbs;
 
@@ -17,7 +18,11 @@ pub struct SSTable {
 }
 
 impl SSTable {
-    pub fn write(path: &Path, data: BTreeMap<Vec<u8>, Vec<u8>>) -> io::Result<()> {
+    pub fn write(
+        path: &Path,
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
+        enc: Option<&EncryptionManager>,
+    ) -> io::Result<()> {
         let mut fbb = FlatBufferBuilder::new();
         let mut entries = Vec::new();
         let mut value_store = HashMap::new();
@@ -83,21 +88,36 @@ impl SSTable {
         fbb.finish(sstable_data, None);
         let finished_data = fbb.finished_data();
 
+        let data_to_write = if let Some(manager) = enc {
+            manager.encrypt(finished_data)?
+        } else {
+            finished_data.to_vec()
+        };
+
         let mut file = File::create(path)?;
-        file.write_all(finished_data)?;
+        file.write_all(&data_to_write)?;
         Ok(())
     }
 
-    pub fn open(path: &Path) -> io::Result<Self> {
+    pub fn open(path: &Path, enc: Option<&EncryptionManager>) -> io::Result<Self> {
         let mut file = File::open(path)?;
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer)?;
+        let mut raw_buffer = Vec::new();
+        file.read_to_end(&mut raw_buffer)?;
+
+        let buffer = if let Some(manager) = enc {
+            manager.decrypt(&raw_buffer)?
+        } else {
+            raw_buffer
+        };
 
         // Basic verification
         let sstable_data = fbs::root_as_sstable_data(&buffer).map_err(|e| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Invalid FlatBuffers data: {:?}", e),
+                format!(
+                    "Invalid FlatBuffers data (decryption failed or wrong key?): {:?}",
+                    e
+                ),
             )
         })?;
 
@@ -245,9 +265,9 @@ mod tests {
         data.insert(b"key1".to_vec(), b"value1".to_vec());
         data.insert(b"key2".to_vec(), b"value2".to_vec());
 
-        SSTable::write(&path, data).expect("Failed to write SSTable");
+        SSTable::write(&path, data, None).expect("Failed to write SSTable");
 
-        let sstable = SSTable::open(&path).expect("Failed to open SSTable");
+        let sstable = SSTable::open(&path, None).expect("Failed to open SSTable");
 
         // Positive cases
         assert_eq!(sstable.get(b"key1").unwrap(), Some(b"value1".to_vec()));
@@ -272,12 +292,12 @@ mod tests {
             data.insert(format!("key{:03}", i).into_bytes(), common_value.clone());
         }
 
-        SSTable::write(&path, data).expect("Failed to write SSTable");
+        SSTable::write(&path, data, None).expect("Failed to write SSTable");
 
         let file_size = fs::metadata(&path).unwrap().len();
         assert!(file_size < 4500, "File size too large: {}", file_size);
 
-        let sstable = SSTable::open(&path).expect("Failed to open SSTable");
+        let sstable = SSTable::open(&path, None).expect("Failed to open SSTable");
         for i in 0..100 {
             assert_eq!(
                 sstable.get(format!("key{:03}", i).as_bytes()).unwrap(),
@@ -300,9 +320,9 @@ mod tests {
         data.insert(b"key2".to_vec(), b"value2".to_vec());
         data.insert(b"key3".to_vec(), b"value3".to_vec());
 
-        SSTable::write(&path, data).expect("Failed to write SSTable");
+        SSTable::write(&path, data, None).expect("Failed to write SSTable");
 
-        let sstable = SSTable::open(&path).expect("Failed to open SSTable");
+        let sstable = SSTable::open(&path, None).expect("Failed to open SSTable");
         assert_eq!(
             sstable.get(b"key1").expect("Failed to get key1"),
             Some(b"value1".to_vec())
@@ -342,9 +362,9 @@ mod tests {
 
             data.insert(b"timeseries".to_vec(), original_values.clone());
 
-            SSTable::write(&path, data).expect("Failed to write SSTable");
+            SSTable::write(&path, data, None).expect("Failed to write SSTable");
 
-            let sstable = SSTable::open(&path).expect("Failed to open SSTable");
+            let sstable = SSTable::open(&path, None).expect("Failed to open SSTable");
             assert_eq!(sstable.get(b"timeseries").unwrap(), Some(original_values));
 
             fs::remove_file(&path).unwrap();
@@ -362,13 +382,55 @@ mod tests {
         data.insert(b"a".to_vec(), b"1".to_vec());
         data.insert(b"b".to_vec(), b"2".to_vec());
 
-        SSTable::write(&path, data).unwrap();
+        SSTable::write(&path, data, None).unwrap();
 
-        let sstable = SSTable::open(&path).unwrap();
+        let sstable = SSTable::open(&path, None).unwrap();
         let entries = sstable.all_entries().unwrap();
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0], (b"a".to_vec(), b"1".to_vec()));
         assert_eq!(entries[1], (b"b".to_vec(), b"2".to_vec()));
+
+        fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn test_sstable_encryption_cycle() {
+        let path = PathBuf::from("test_sstable_enc.db");
+        if path.exists() {
+            fs::remove_file(&path).unwrap();
+        }
+
+        let key = [0u8; 32];
+        let manager = EncryptionManager::new(&key);
+
+        let mut data = BTreeMap::new();
+        data.insert(b"secret_key".to_vec(), b"secret_value".to_vec());
+
+        // Write with encryption
+        SSTable::write(&path, data.clone(), Some(&manager)).unwrap();
+
+        // Verify file is actually different from plaintext
+        let mut raw_data = Vec::new();
+        File::open(&path)
+            .unwrap()
+            .read_to_end(&mut raw_data)
+            .unwrap();
+        assert!(raw_data.len() > 12); // Nonce + ciphertext
+
+        // Read back with encryption
+        let sstable = SSTable::open(&path, Some(&manager)).unwrap();
+        assert_eq!(
+            sstable.get(b"secret_key").unwrap(),
+            Some(b"secret_value".to_vec())
+        );
+
+        // Attempt to read without encryption (should fail FlatBuffers check)
+        assert!(SSTable::open(&path, None).is_err());
+
+        // Attempt to read with wrong key
+        let wrong_key = [1u8; 32];
+        let wrong_manager = EncryptionManager::new(&wrong_key);
+        assert!(SSTable::open(&path, Some(&wrong_manager)).is_err());
 
         fs::remove_file(&path).unwrap();
     }
