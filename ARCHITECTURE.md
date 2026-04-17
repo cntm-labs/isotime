@@ -41,15 +41,24 @@ The SHM Delta Streamer provides a high-performance, lock-free communication chan
 - **Heartbeat & Stale Detection:** The writer periodically updates a heartbeat timestamp. The reader can detect if the writer has crashed or stalled.
 - **Bus Monitor:** A CLI tool (`isotime-bus-top`) provides real-time visibility into bus lag, throughput, and overflow counts.
 
+## 🗜️ SIMD Delta Compressor & Value Sharing
+
+The storage engine employs advanced compression and de-duplication techniques to minimize disk footprint while maintaining high throughput.
+
+- **Value Sharing (Hybrid De-duplication):** Within each SSTable block, identical values are de-duplicated using a fast hash-based lookup. Duplicate values are replaced with a `RefValue` (offset pointer), while unique values are stored once as `RawValue`.
+- **SIMD Delta-Delta Encoding:** Optimized for time-series data (timestamps and monotonic counters). It uses SIMD instructions (AVX2) to calculate second-order deltas, significantly reducing the entropy of integer sequences.
+- **Runtime Dispatch:** The compressor automatically detects CPU features at runtime (e.g., AVX2) and selects the most optimized implementation, falling back to scalar logic on unsupported hardware.
+- **Zero-Copy Serialization:** Uses **FlatBuffers** for the on-disk format, enabling zero-copy deserialization and efficient random access within compressed SSTables.
+
 ## 🗄️ LSM-Tree Details
 
 The storage engine employs a custom Log-Structured Merge-Tree (LSM-Tree) optimized for high-throughput time-series data.
 
 - **WAL (Write-Ahead Log):** All incoming deltas are first appended to a Write-Ahead Log to ensure durability and crash recovery.
 - **MemTable:** An in-memory structure that provides low-latency write access. Once it reaches a certain threshold, it is frozen and flushed to disk as an SSTable.
-- **SSTable (Sorted String Table):** On-disk storage format using **FlatBuffers** for zero-copy deserialization. Data is sorted by time and key for efficient range scans.
-- **Bloom Filters:** Each SSTable is accompanied by a Bloom Filter to drastically reduce unnecessary disk reads by checking if a key potentially exists in a file before opening it.
-- **Compaction (TWCS):** Utilizes a Time-Windowed Compaction Strategy to merge smaller SSTables into larger ones, maintaining high read performance and optimizing disk space.
+- **SSTable (Sorted String Table):** On-disk storage format. Data is sorted by time and key for efficient range scans.
+- **Bloom Filters:** Each SSTable is accompanied by a SIMD-accelerated Bloom Filter to drastically reduce unnecessary disk reads.
+- **Compaction (TWCS):** Utilizes a Time-Windowed Compaction Strategy to merge smaller SSTables into larger ones, applying de-duplication and compression during the merge.
 
 ## 🛠️ Technology Stack
 - **Programming Languages:** Rust
