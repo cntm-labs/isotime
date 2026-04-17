@@ -21,7 +21,7 @@ async fn main() -> io::Result<()> {
     for i in 0..50 {
         engine.put(format!("key-{:02}", i).into_bytes(), redundant_val.clone())?;
     }
-    
+
     // Verify from MemTable
     if let Some(val) = engine.get(b"key-00") {
         assert_eq!(val, redundant_val);
@@ -41,15 +41,17 @@ async fn main() -> io::Result<()> {
         timestamps.extend_from_slice(&t.to_le_bytes());
         t += 10;
     }
-    
+
     engine.put(b"timeseries-data".to_vec(), timestamps.clone())?;
     let compressed_sst = "compressed_simd.db";
     engine.flush(compressed_sst)?;
-    
+
     let sst = SSTable::open(Path::new(compressed_sst))?;
     if let Some(val) = sst.get(b"timeseries-data")? {
         assert_eq!(val, timestamps);
-        println!("SIMD Delta-Delta compression verified: 800 bytes of timestamps recovered correctly.");
+        println!(
+            "SIMD Delta-Delta compression verified: 800 bytes of timestamps recovered correctly."
+        );
     }
 
     // --- Demo 3: Compaction Flow ---
@@ -61,7 +63,10 @@ async fn main() -> io::Result<()> {
     )?;
 
     let final_sst = SSTable::open(Path::new("final.db"))?;
-    println!("Final SSTable entry count: {}", final_sst.all_entries()?.len());
+    println!(
+        "Final SSTable entry count: {}",
+        final_sst.all_entries()?.len()
+    );
 
     // Demo Delete
     engine.delete(b"key-00")?;

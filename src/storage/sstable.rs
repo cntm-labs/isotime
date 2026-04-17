@@ -4,9 +4,10 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 
 #[path = "schema_generated.rs"]
+#[allow(clippy::all)]
 mod schema_generated;
 use crate::storage::bloom::BloomFilter;
-use crate::storage::compressor::{Compressor, CompressionType};
+use crate::storage::compressor::{CompressionType, Compressor};
 use flatbuffers::FlatBufferBuilder;
 use schema_generated::isotime::storage as fbs;
 
@@ -27,20 +28,16 @@ impl SSTable {
         for (i, (key, value)) in data.into_iter().enumerate() {
             bloom.add(&key);
             let key_vec = fbb.create_vector(&key);
-            
+
             let (value_type, value_offset) = if let Some(&orig_idx) = value_store.get(&value) {
                 // Value seen before, use RefValue
-                let ref_value = fbs::RefValue::create(
-                    &mut fbb,
-                    &fbs::RefValueArgs {
-                        offset: orig_idx,
-                    },
-                );
+                let ref_value =
+                    fbs::RefValue::create(&mut fbb, &fbs::RefValueArgs { offset: orig_idx });
                 (fbs::ValueType::RefValue, ref_value.as_union_value())
             } else {
                 // New value, use RawValue
                 value_store.insert(value.clone(), i as u32);
-                
+
                 // Compress value
                 let (ctype, compressed_data) = Compressor::compress(&value);
                 let fbs_ctype = match ctype {
@@ -131,9 +128,12 @@ impl SSTable {
                 let raw = entry.value_as_raw_value().ok_or_else(|| {
                     io::Error::new(io::ErrorKind::InvalidData, "Missing RawValue")
                 })?;
-                let data = raw.data().ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::InvalidData, "Missing data in RawValue")
-                })?.bytes();
+                let data = raw
+                    .data()
+                    .ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidData, "Missing data in RawValue")
+                    })?
+                    .bytes();
 
                 let ctype = match raw.compression() {
                     fbs::CompressionType::None => CompressionType::None,
@@ -273,7 +273,7 @@ mod tests {
         }
 
         SSTable::write(&path, data).expect("Failed to write SSTable");
-        
+
         let file_size = fs::metadata(&path).unwrap().len();
         assert!(file_size < 4500, "File size too large: {}", file_size);
 
@@ -333,6 +333,7 @@ mod tests {
             let mut original_values = Vec::new();
             let mut curr = 1000u64;
             let mut step = 10u64;
+            #[allow(clippy::explicit_counter_loop)]
             for _ in 0..100 {
                 original_values.extend_from_slice(&curr.to_le_bytes());
                 curr += step;

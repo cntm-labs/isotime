@@ -1,6 +1,6 @@
-pub mod compressor;
 pub mod bloom;
 pub mod compaction;
+pub mod compressor;
 pub mod memtable;
 pub mod sstable;
 pub mod wal;
@@ -164,7 +164,7 @@ mod tests {
         engine.flush(sst_path).unwrap();
 
         let sstable = SSTable::open(Path::new(sst_path)).unwrap();
-        assert_eq!(sstable.get(b"k1").unwrap(), Some(&b"v1"[..]));
+        assert_eq!(sstable.get(b"k1").unwrap(), Some(b"v1".to_vec()));
 
         fs::remove_file(wal_path).unwrap();
         fs::remove_file(sst_path).unwrap();

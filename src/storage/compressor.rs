@@ -13,9 +13,23 @@ impl Compressor {
     pub fn compress(data: &[u8]) -> (CompressionType, Vec<u8>) {
         // Only attempt DeltaDelta if we have enough 64-bit values and SIMD is enabled
         #[cfg(feature = "simd")]
-        if data.len() >= 32 && data.len() % 8 == 0 {
-            if std::is_x86_feature_detected!("avx2") {
-                return (CompressionType::DeltaDelta, Self::compress_delta_delta_simd(data));
+        if data.len() >= 32 && data.len().is_multiple_of(8) {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            {
+                if std::is_x86_feature_detected!("avx2") {
+                    return (
+                        CompressionType::DeltaDelta,
+                        Self::compress_delta_delta_simd(data),
+                    );
+                }
+            }
+            #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+            {
+                // On non-x86, we still use portable SIMD if the feature is enabled
+                return (
+                    CompressionType::DeltaDelta,
+                    Self::compress_delta_delta_simd(data),
+                );
             }
         }
 
@@ -27,8 +41,17 @@ impl Compressor {
             CompressionType::None => data.to_vec(),
             CompressionType::DeltaDelta => {
                 #[cfg(feature = "simd")]
-                if std::is_x86_feature_detected!("avx2") {
-                    return Self::decompress_delta_delta_simd(data);
+                {
+                    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                    {
+                        if std::is_x86_feature_detected!("avx2") {
+                            return Self::decompress_delta_delta_simd(data);
+                        }
+                    }
+                    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+                    {
+                        return Self::decompress_delta_delta_simd(data);
+                    }
                 }
                 // Fallback or error
                 data.to_vec()
@@ -53,14 +76,14 @@ impl Compressor {
 
         let mut i = 2;
         while i + 3 < values.len() {
-            let curr = u64x4::from_array([values[i], values[i+1], values[i+2], values[i+3]]);
-            let prev = u64x4::from_array([values[i-1], values[i], values[i+1], values[i+2]]);
-            let prev2 = u64x4::from_array([values[i-2], values[i-1], values[i], values[i+1]]);
+            let curr = u64x4::from_array([values[i], values[i + 1], values[i + 2], values[i + 3]]);
+            let prev = u64x4::from_array([values[i - 1], values[i], values[i + 1], values[i + 2]]);
+            let prev2 = u64x4::from_array([values[i - 2], values[i - 1], values[i], values[i + 1]]);
 
             // Use operators which are wrapping for Simd
             let shift = Simd::from_array([1; 4]);
             let dd = curr - (prev << shift) + prev2;
-            
+
             for &val in dd.as_array() {
                 result.extend_from_slice(&val.to_le_bytes());
             }
@@ -68,7 +91,9 @@ impl Compressor {
         }
 
         while i < values.len() {
-            let dd = values[i].wrapping_sub(values[i-1].wrapping_shl(1)).wrapping_add(values[i-2]);
+            let dd = values[i]
+                .wrapping_sub(values[i - 1].wrapping_shl(1))
+                .wrapping_add(values[i - 2]);
             result.extend_from_slice(&dd.to_le_bytes());
             i += 1;
         }
@@ -92,7 +117,9 @@ impl Compressor {
         result_values.push(values[1]);
 
         for i in 2..values.len() {
-            let val = values[i].wrapping_add(result_values[i-1].wrapping_shl(1)).wrapping_sub(result_values[i-2]);
+            let val = values[i]
+                .wrapping_add(result_values[i - 1].wrapping_shl(1))
+                .wrapping_sub(result_values[i - 2]);
             result_values.push(val);
         }
 
@@ -115,6 +142,7 @@ mod tests {
             let mut original = Vec::new();
             let mut curr = 1000u64;
             let mut step = 10u64;
+            #[allow(clippy::explicit_counter_loop)]
             for _ in 0..100 {
                 original.extend_from_slice(&curr.to_le_bytes());
                 curr += step;
@@ -123,7 +151,7 @@ mod tests {
 
             let (ctype, compressed) = Compressor::compress(&original);
             assert!(matches!(ctype, CompressionType::DeltaDelta));
-            
+
             let decompressed = Compressor::decompress(ctype, &compressed);
             assert_eq!(original, decompressed);
         }
@@ -135,7 +163,7 @@ mod tests {
         let (ctype, compressed) = Compressor::compress(&data);
         assert!(matches!(ctype, CompressionType::None));
         assert_eq!(data, compressed);
-        
+
         let decompressed = Compressor::decompress(ctype, &compressed);
         assert_eq!(data, decompressed);
     }
