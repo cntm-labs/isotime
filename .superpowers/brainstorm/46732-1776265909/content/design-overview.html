@@ -1,0 +1,63 @@
+<h2>Module Design: LSM-Tree Storage Engine</h2>
+<p class="subtitle">สถาปัตยกรรมระบบจัดเก็บข้อมูลสำหรับ Time-Machine for Intelligence</p>
+
+<div class="mockup">
+  <div class="mockup-header">Data Flow: Write & Persistence</div>
+  <div class="mockup-body" style="background: #f8f9fa; padding: 20px;">
+    <div style="display: flex; flex-direction: column; gap: 15px;">
+      <!-- Incoming -->
+      <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+        <div class="label">Incoming Delta</div>
+        <div style="flex-grow: 1; height: 2px; background: #333;"></div>
+      </div>
+      
+      <!-- WAL & MemTable -->
+      <div style="display: flex; gap: 20px;">
+        <div style="flex: 1; border: 2px solid #dc3545; background: #fff5f5; padding: 10px; border-radius: 4px; text-align: center;">
+          <b>WAL</b> (Disk)<br><span style="font-size: 10px;">Sequential Append</span>
+        </div>
+        <div style="flex: 1; border: 2px solid #28a745; background: #e8f5e9; padding: 10px; border-radius: 4px; text-align: center;">
+          <b>MemTable</b> (RAM)<br><span style="font-size: 10px;">Lock-free SkipList</span>
+        </div>
+      </div>
+
+      <div style="text-align: center; font-size: 20px;">↓ Flush (When Full) ↓</div>
+
+      <!-- SSTables -->
+      <div style="border: 2px solid #007bff; background: #e7f3ff; padding: 15px; border-radius: 4px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+          <b>Time-Window SSTables</b> (Disk)
+          <div class="label">Compaction: Time-Window</div>
+        </div>
+        <div style="display: flex; gap: 5px; overflow-x: auto; padding-bottom: 5px;">
+          <div style="min-width: 80px; height: 60px; border: 1px solid #333; background: #fff; padding: 5px; font-size: 10px;">
+            [18:00-19:00]<br>SSTable #1<br><span style="color: blue;">Index + Bloom</span>
+          </div>
+          <div style="min-width: 80px; height: 60px; border: 1px solid #333; background: #fff; padding: 5px; font-size: 10px;">
+            [19:00-20:00]<br>SSTable #2<br><span style="color: blue;">Index + Bloom</span>
+          </div>
+          <div style="min-width: 80px; height: 60px; border: 1px solid #333; background: #fff; padding: 5px; font-size: 10px; opacity: 0.6;">
+            [20:00-21:00]<br>Current...
+          </div>
+        </div>
+      </div>
+
+      <!-- Query Path -->
+      <div style="background: #eee; padding: 10px; border-radius: 4px; font-size: 12px; border-left: 4px solid #333;">
+        <b>Read Path:</b> 1. MemTable → 2. Immutable MemTables → 3. SSTables (Filter by Time Window)
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="pros-cons">
+  <div class="pros">
+    <h4>จุดเด่นของการออกแบบนี้</h4>
+    <ul>
+      <li><b>Write Speed:</b> เขียนลง WAL และ RAM ได้ทันที รองรับ High-throughput</li>
+      <li><b>Reliability:</b> ข้อมูลไม่หายด้วย WAL</li>
+      <li><b>Query Efficiency:</b> กรองข้อมูลตามช่วงเวลาได้รวดเร็ว (Time Pruning)</li>
+      <li><b>Maintainability:</b> การจัดการไฟล์แยกตามเวลาทำให้ Debug และลบข้อมูลเก่าได้ง่าย</li>
+    </ul>
+  </div>
+</div>

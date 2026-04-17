@@ -1,0 +1,53 @@
+<h2>LSM-Tree Component: Compaction Strategy</h2>
+<p class="subtitle">กลยุทธ์การบริหารจัดการไฟล์ SSTables บน Disk เพื่อประสิทธิภาพระยะยาว</p>
+
+<div class="options">
+  <div class="option" data-choice="leveled" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Leveled Compaction</h3>
+      <p>ลดการซ้ำซ้อนของข้อมูล (Space Amplification) เหมาะกับ Read-heavy</p>
+      <div class="label">Style: RocksDB</div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="tiered" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Size-Tiered Compaction</h3>
+      <p>เน้นความเร็วในการเขียน (Write-heavy) เป็นหลัก</p>
+      <div class="label">Style: Cassandra / ScyllaDB</div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="time-window" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Time-Window Compaction</h3>
+      <p>เน้นการ Query ตามช่วงเวลาและการลบข้อมูลเก่า (TTL) ได้ง่ายที่สุด</p>
+      <div class="label">Best for: Time-Series / IoT / Logs</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Compaction Visual Comparison</h3>
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">Leveled (Standard)</div>
+      <div class="mockup-body" style="background: #f8f9fa; padding: 10px; font-size: 12px;">
+        <div style="border: 1px solid #333; margin-bottom: 5px; padding: 2px;">L0: [File1][File2][File3]</div>
+        <div style="border: 1px solid #007bff; margin-bottom: 5px; padding: 2px;">L1: [Sorted Data Chunk A][Chunk B]</div>
+        <div style="border: 1px solid #28a745; margin-bottom: 5px; padding: 2px;">L2: [Global Sorted Storage...]</div>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">Time-Window (Target)</div>
+      <div class="mockup-body" style="background: #f8f9fa; padding: 10px; font-size: 12px;">
+        <div style="border: 1px solid #dc3545; margin-bottom: 5px; padding: 2px;">Window: Today (Active)</div>
+        <div style="border: 1px solid #ffc107; margin-bottom: 5px; padding: 2px;">Window: Yesterday (Merged)</div>
+        <div style="border: 1px solid #6c757d; margin-bottom: 5px; padding: 2px;">Window: Last Week (Compressed)</div>
+      </div>
+    </div>
+  </div>
+</div>

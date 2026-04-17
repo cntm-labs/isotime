@@ -1,9 +1,9 @@
 #![cfg_attr(feature = "simd", feature(portable_simd))]
 
+use isotime::storage::bus::{BusManager, DeltaEvent};
 use isotime::storage::compaction::Compactor;
 use isotime::storage::sstable::SSTable;
 use isotime::storage::StorageEngine;
-use isotime::storage::bus::{BusManager, DeltaEvent};
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -59,7 +59,7 @@ async fn main() -> io::Result<()> {
     println!("\n--- Demo 3: SHM Bus Ingestion ---");
     // Initialize SHM Bus
     let mut bus = BusManager::new("bus.bin", 1024)?;
-    
+
     // Simulate some work
     println!("Pushing test events to SHM Bus...");
     for i in 0..10 {

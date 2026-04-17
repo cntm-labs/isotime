@@ -23,7 +23,9 @@ fn main() -> io::Result<()> {
         let tail = header.tail.load(std::sync::atomic::Ordering::Relaxed);
         let lag = tail - head;
         let capacity = header.capacity;
-        let overflow = header.overflow_count.load(std::sync::atomic::Ordering::Relaxed);
+        let overflow = header
+            .overflow_count
+            .load(std::sync::atomic::Ordering::Relaxed);
         let pid = header.writer_pid;
 
         // Clear screen and reset cursor
@@ -35,12 +37,17 @@ fn main() -> io::Result<()> {
         println!("Tail:     {}", tail);
         println!("Lag:      {}", lag);
         println!("Overflow: {}", overflow);
-        
+
         // Progress bar
         let fill = (lag as f32 / capacity as f32 * 20.0) as usize;
-        let bar: String = std::iter::repeat('#').take(fill).collect();
-        let empty: String = std::iter::repeat('.').take(20 - fill).collect();
-        println!("[{}{}] {:.1}%", bar, empty, (lag as f32 / capacity as f32 * 100.0));
+        let bar = "#".repeat(fill);
+        let empty = ".".repeat(20 - fill);
+        println!(
+            "[{}{}] {:.1}%",
+            bar,
+            empty,
+            (lag as f32 / capacity as f32 * 100.0)
+        );
 
         io::stdout().flush()?;
         thread::sleep(Duration::from_millis(100));
