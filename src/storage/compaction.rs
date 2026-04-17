@@ -159,7 +159,13 @@ mod tests {
             SSTable::write(&sst1_path, data1, None, CompressionPolicy::Balanced).unwrap();
 
             // Compact (even single SSTable to test the path)
-            Compactor::compact(&[&sst1_path], &merged_path, None, CompressionPolicy::Balanced).unwrap();
+            Compactor::compact(
+                &[&sst1_path],
+                &merged_path,
+                None,
+                CompressionPolicy::Balanced,
+            )
+            .unwrap();
 
             // Verify
             let merged = SSTable::open(&merged_path, None).unwrap();

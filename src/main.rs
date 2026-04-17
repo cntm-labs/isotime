@@ -85,7 +85,10 @@ async fn main() -> io::Result<()> {
             event_id: 1000 + i as u64,
             event_type: (i % 3) as u8,
             _reserved: [0; 7],
-            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64,
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as u64,
             payload: [i as u8; 96],
             checksum: 0,
         };
