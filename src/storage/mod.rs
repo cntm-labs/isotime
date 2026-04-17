@@ -9,6 +9,7 @@ pub mod wal;
 use crate::storage::memtable::MemTable;
 use crate::storage::sstable::SSTable;
 use crate::storage::wal::{Wal, WalOp};
+use crate::storage::bus::{BusManager};
 use std::io;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -64,6 +65,22 @@ impl StorageEngine {
         let snapshot = self.memtable.snapshot();
         SSTable::write(sstable_path.as_ref(), snapshot)?;
         Ok(())
+    }
+
+    pub fn ingest_from_bus(&self, bus: &mut BusManager, limit: usize) -> io::Result<usize> {
+        let batch = bus.pop_batch(limit);
+        let count = batch.len();
+        
+        for event in batch {
+            let key = event.event_id.to_le_bytes().to_vec();
+            let mut value = vec![event.event_type];
+            value.extend_from_slice(&event.timestamp.to_le_bytes());
+            value.extend_from_slice(&event.payload);
+            
+            self.put(key, value)?;
+        }
+        
+        Ok(count)
     }
 }
 
@@ -169,5 +186,42 @@ mod tests {
 
         fs::remove_file(wal_path).unwrap();
         fs::remove_file(sst_path).unwrap();
+    }
+
+    #[test]
+    fn test_storage_engine_ingest_from_bus() {
+        let wal_path = "test_ingest.wal";
+        let bus_path = "test_ingest_bus.bin";
+        if Path::new(wal_path).exists() {
+            fs::remove_file(wal_path).unwrap();
+        }
+        if Path::new(bus_path).exists() {
+            fs::remove_file(bus_path).unwrap();
+        }
+
+        let engine = StorageEngine::new(wal_path).unwrap();
+        let mut bus = BusManager::new(bus_path, 10).unwrap();
+
+        let event = DeltaEvent {
+            event_id: 123,
+            event_type: 1,
+            _reserved: [0; 7],
+            timestamp: 456,
+            payload: [0xBB; 96],
+            checksum: 0,
+        };
+        bus.push(event);
+
+        let count = engine.ingest_from_bus(&mut bus, 10).unwrap();
+        assert_eq!(count, 1);
+
+        let key = 123u64.to_le_bytes().to_vec();
+        let value = engine.get(&key).unwrap();
+        assert_eq!(value[0], 1);
+        assert_eq!(&value[1..9], &456u64.to_le_bytes());
+        assert_eq!(value[9], 0xBB);
+
+        fs::remove_file(wal_path).unwrap();
+        fs::remove_file(bus_path).unwrap();
     }
 }
