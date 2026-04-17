@@ -8,6 +8,440 @@ pub mod isotime {
     #[allow(unused_imports, dead_code)]
     pub mod storage {
 
+        #[deprecated(
+            since = "2.0.0",
+            note = "Use associated constants instead. This will no longer be generated in 2021."
+        )]
+        pub const ENUM_MIN_COMPRESSION_TYPE: i8 = 0;
+        #[deprecated(
+            since = "2.0.0",
+            note = "Use associated constants instead. This will no longer be generated in 2021."
+        )]
+        pub const ENUM_MAX_COMPRESSION_TYPE: i8 = 1;
+        #[deprecated(
+            since = "2.0.0",
+            note = "Use associated constants instead. This will no longer be generated in 2021."
+        )]
+        #[allow(non_camel_case_types)]
+        pub const ENUM_VALUES_COMPRESSION_TYPE: [CompressionType; 2] =
+            [CompressionType::None, CompressionType::DeltaDelta];
+
+        #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+        #[repr(transparent)]
+        pub struct CompressionType(pub i8);
+        #[allow(non_upper_case_globals)]
+        impl CompressionType {
+            pub const None: Self = Self(0);
+            pub const DeltaDelta: Self = Self(1);
+
+            pub const ENUM_MIN: i8 = 0;
+            pub const ENUM_MAX: i8 = 1;
+            pub const ENUM_VALUES: &'static [Self] = &[Self::None, Self::DeltaDelta];
+            /// Returns the variant's name or "" if unknown.
+            pub fn variant_name(self) -> Option<&'static str> {
+                match self {
+                    Self::None => Some("None"),
+                    Self::DeltaDelta => Some("DeltaDelta"),
+                    _ => None,
+                }
+            }
+        }
+        impl ::core::fmt::Debug for CompressionType {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                if let Some(name) = self.variant_name() {
+                    f.write_str(name)
+                } else {
+                    f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+                }
+            }
+        }
+        impl<'a> ::flatbuffers::Follow<'a> for CompressionType {
+            type Inner = Self;
+            #[inline]
+            unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+                let b = unsafe { ::flatbuffers::read_scalar_at::<i8>(buf, loc) };
+                Self(b)
+            }
+        }
+
+        impl ::flatbuffers::Push for CompressionType {
+            type Output = CompressionType;
+            #[inline]
+            unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+                unsafe { ::flatbuffers::emplace_scalar::<i8>(dst, self.0) };
+            }
+        }
+
+        impl ::flatbuffers::EndianScalar for CompressionType {
+            type Scalar = i8;
+            #[inline]
+            fn to_little_endian(self) -> i8 {
+                self.0.to_le()
+            }
+            #[inline]
+            #[allow(clippy::wrong_self_convention)]
+            fn from_little_endian(v: i8) -> Self {
+                let b = i8::from_le(v);
+                Self(b)
+            }
+        }
+
+        impl<'a> ::flatbuffers::Verifiable for CompressionType {
+            #[inline]
+            fn run_verifier(
+                v: &mut ::flatbuffers::Verifier,
+                pos: usize,
+            ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+                i8::run_verifier(v, pos)
+            }
+        }
+
+        impl ::flatbuffers::SimpleToVerifyInSlice for CompressionType {}
+        #[deprecated(
+            since = "2.0.0",
+            note = "Use associated constants instead. This will no longer be generated in 2021."
+        )]
+        pub const ENUM_MIN_VALUE_TYPE: u8 = 0;
+        #[deprecated(
+            since = "2.0.0",
+            note = "Use associated constants instead. This will no longer be generated in 2021."
+        )]
+        pub const ENUM_MAX_VALUE_TYPE: u8 = 2;
+        #[deprecated(
+            since = "2.0.0",
+            note = "Use associated constants instead. This will no longer be generated in 2021."
+        )]
+        #[allow(non_camel_case_types)]
+        pub const ENUM_VALUES_VALUE_TYPE: [ValueType; 3] =
+            [ValueType::NONE, ValueType::RawValue, ValueType::RefValue];
+
+        #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+        #[repr(transparent)]
+        pub struct ValueType(pub u8);
+        #[allow(non_upper_case_globals)]
+        impl ValueType {
+            pub const NONE: Self = Self(0);
+            pub const RawValue: Self = Self(1);
+            pub const RefValue: Self = Self(2);
+
+            pub const ENUM_MIN: u8 = 0;
+            pub const ENUM_MAX: u8 = 2;
+            pub const ENUM_VALUES: &'static [Self] = &[Self::NONE, Self::RawValue, Self::RefValue];
+            /// Returns the variant's name or "" if unknown.
+            pub fn variant_name(self) -> Option<&'static str> {
+                match self {
+                    Self::NONE => Some("NONE"),
+                    Self::RawValue => Some("RawValue"),
+                    Self::RefValue => Some("RefValue"),
+                    _ => None,
+                }
+            }
+        }
+        impl ::core::fmt::Debug for ValueType {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                if let Some(name) = self.variant_name() {
+                    f.write_str(name)
+                } else {
+                    f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+                }
+            }
+        }
+        impl<'a> ::flatbuffers::Follow<'a> for ValueType {
+            type Inner = Self;
+            #[inline]
+            unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+                let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+                Self(b)
+            }
+        }
+
+        impl ::flatbuffers::Push for ValueType {
+            type Output = ValueType;
+            #[inline]
+            unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+                unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+            }
+        }
+
+        impl ::flatbuffers::EndianScalar for ValueType {
+            type Scalar = u8;
+            #[inline]
+            fn to_little_endian(self) -> u8 {
+                self.0.to_le()
+            }
+            #[inline]
+            #[allow(clippy::wrong_self_convention)]
+            fn from_little_endian(v: u8) -> Self {
+                let b = u8::from_le(v);
+                Self(b)
+            }
+        }
+
+        impl<'a> ::flatbuffers::Verifiable for ValueType {
+            #[inline]
+            fn run_verifier(
+                v: &mut ::flatbuffers::Verifier,
+                pos: usize,
+            ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+                u8::run_verifier(v, pos)
+            }
+        }
+
+        impl ::flatbuffers::SimpleToVerifyInSlice for ValueType {}
+        pub struct ValueTypeUnionTableOffset {}
+
+        pub enum RawValueOffset {}
+        #[derive(Copy, Clone, PartialEq)]
+
+        pub struct RawValue<'a> {
+            pub _tab: ::flatbuffers::Table<'a>,
+        }
+
+        impl<'a> ::flatbuffers::Follow<'a> for RawValue<'a> {
+            type Inner = RawValue<'a>;
+            #[inline]
+            unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+                Self {
+                    _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+                }
+            }
+        }
+
+        impl<'a> RawValue<'a> {
+            pub const VT_DATA: ::flatbuffers::VOffsetT = 4;
+            pub const VT_COMPRESSION: ::flatbuffers::VOffsetT = 6;
+
+            #[inline]
+            pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+                RawValue { _tab: table }
+            }
+            #[allow(unused_mut)]
+            pub fn create<
+                'bldr: 'args,
+                'args: 'mut_bldr,
+                'mut_bldr,
+                A: ::flatbuffers::Allocator + 'bldr,
+            >(
+                _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+                args: &'args RawValueArgs<'args>,
+            ) -> ::flatbuffers::WIPOffset<RawValue<'bldr>> {
+                let mut builder = RawValueBuilder::new(_fbb);
+                if let Some(x) = args.data {
+                    builder.add_data(x);
+                }
+                builder.add_compression(args.compression);
+                builder.finish()
+            }
+
+            #[inline]
+            pub fn data(&self) -> Option<::flatbuffers::Vector<'a, u8>> {
+                // Safety:
+                // Created from valid Table for this object
+                // which contains a valid value in this slot
+                unsafe {
+                    self._tab
+                        .get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u8>>>(
+                            RawValue::VT_DATA,
+                            None,
+                        )
+                }
+            }
+            #[inline]
+            pub fn compression(&self) -> CompressionType {
+                // Safety:
+                // Created from valid Table for this object
+                // which contains a valid value in this slot
+                unsafe {
+                    self._tab
+                        .get::<CompressionType>(
+                            RawValue::VT_COMPRESSION,
+                            Some(CompressionType::None),
+                        )
+                        .unwrap()
+                }
+            }
+        }
+
+        impl ::flatbuffers::Verifiable for RawValue<'_> {
+            #[inline]
+            fn run_verifier(
+                v: &mut ::flatbuffers::Verifier,
+                pos: usize,
+            ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+                v.visit_table(pos)?
+                    .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u8>>>(
+                        "data",
+                        Self::VT_DATA,
+                        false,
+                    )?
+                    .visit_field::<CompressionType>("compression", Self::VT_COMPRESSION, false)?
+                    .finish();
+                Ok(())
+            }
+        }
+        pub struct RawValueArgs<'a> {
+            pub data: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u8>>>,
+            pub compression: CompressionType,
+        }
+        impl<'a> Default for RawValueArgs<'a> {
+            #[inline]
+            fn default() -> Self {
+                RawValueArgs {
+                    data: None,
+                    compression: CompressionType::None,
+                }
+            }
+        }
+
+        pub struct RawValueBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+            fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+            start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+        }
+        impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RawValueBuilder<'a, 'b, A> {
+            #[inline]
+            pub fn add_data(
+                &mut self,
+                data: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b, u8>>,
+            ) {
+                self.fbb_
+                    .push_slot_always::<::flatbuffers::WIPOffset<_>>(RawValue::VT_DATA, data);
+            }
+            #[inline]
+            pub fn add_compression(&mut self, compression: CompressionType) {
+                self.fbb_.push_slot::<CompressionType>(
+                    RawValue::VT_COMPRESSION,
+                    compression,
+                    CompressionType::None,
+                );
+            }
+            #[inline]
+            pub fn new(
+                _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+            ) -> RawValueBuilder<'a, 'b, A> {
+                let start = _fbb.start_table();
+                RawValueBuilder {
+                    fbb_: _fbb,
+                    start_: start,
+                }
+            }
+            #[inline]
+            pub fn finish(self) -> ::flatbuffers::WIPOffset<RawValue<'a>> {
+                let o = self.fbb_.end_table(self.start_);
+                ::flatbuffers::WIPOffset::new(o.value())
+            }
+        }
+
+        impl ::core::fmt::Debug for RawValue<'_> {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                let mut ds = f.debug_struct("RawValue");
+                ds.field("data", &self.data());
+                ds.field("compression", &self.compression());
+                ds.finish()
+            }
+        }
+        pub enum RefValueOffset {}
+        #[derive(Copy, Clone, PartialEq)]
+
+        pub struct RefValue<'a> {
+            pub _tab: ::flatbuffers::Table<'a>,
+        }
+
+        impl<'a> ::flatbuffers::Follow<'a> for RefValue<'a> {
+            type Inner = RefValue<'a>;
+            #[inline]
+            unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+                Self {
+                    _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+                }
+            }
+        }
+
+        impl<'a> RefValue<'a> {
+            pub const VT_OFFSET: ::flatbuffers::VOffsetT = 4;
+
+            #[inline]
+            pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+                RefValue { _tab: table }
+            }
+            #[allow(unused_mut)]
+            pub fn create<
+                'bldr: 'args,
+                'args: 'mut_bldr,
+                'mut_bldr,
+                A: ::flatbuffers::Allocator + 'bldr,
+            >(
+                _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+                args: &'args RefValueArgs,
+            ) -> ::flatbuffers::WIPOffset<RefValue<'bldr>> {
+                let mut builder = RefValueBuilder::new(_fbb);
+                builder.add_offset(args.offset);
+                builder.finish()
+            }
+
+            #[inline]
+            pub fn offset(&self) -> u32 {
+                // Safety:
+                // Created from valid Table for this object
+                // which contains a valid value in this slot
+                unsafe { self._tab.get::<u32>(RefValue::VT_OFFSET, Some(0)).unwrap() }
+            }
+        }
+
+        impl ::flatbuffers::Verifiable for RefValue<'_> {
+            #[inline]
+            fn run_verifier(
+                v: &mut ::flatbuffers::Verifier,
+                pos: usize,
+            ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+                v.visit_table(pos)?
+                    .visit_field::<u32>("offset", Self::VT_OFFSET, false)?
+                    .finish();
+                Ok(())
+            }
+        }
+        pub struct RefValueArgs {
+            pub offset: u32,
+        }
+        impl<'a> Default for RefValueArgs {
+            #[inline]
+            fn default() -> Self {
+                RefValueArgs { offset: 0 }
+            }
+        }
+
+        pub struct RefValueBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+            fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+            start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+        }
+        impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RefValueBuilder<'a, 'b, A> {
+            #[inline]
+            pub fn add_offset(&mut self, offset: u32) {
+                self.fbb_.push_slot::<u32>(RefValue::VT_OFFSET, offset, 0);
+            }
+            #[inline]
+            pub fn new(
+                _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+            ) -> RefValueBuilder<'a, 'b, A> {
+                let start = _fbb.start_table();
+                RefValueBuilder {
+                    fbb_: _fbb,
+                    start_: start,
+                }
+            }
+            #[inline]
+            pub fn finish(self) -> ::flatbuffers::WIPOffset<RefValue<'a>> {
+                let o = self.fbb_.end_table(self.start_);
+                ::flatbuffers::WIPOffset::new(o.value())
+            }
+        }
+
+        impl ::core::fmt::Debug for RefValue<'_> {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                let mut ds = f.debug_struct("RefValue");
+                ds.field("offset", &self.offset());
+                ds.finish()
+            }
+        }
         pub enum EntryOffset {}
         #[derive(Copy, Clone, PartialEq)]
 
@@ -27,7 +461,8 @@ pub mod isotime {
 
         impl<'a> Entry<'a> {
             pub const VT_KEY: ::flatbuffers::VOffsetT = 4;
-            pub const VT_VALUE: ::flatbuffers::VOffsetT = 6;
+            pub const VT_VALUE_TYPE: ::flatbuffers::VOffsetT = 6;
+            pub const VT_VALUE: ::flatbuffers::VOffsetT = 8;
 
             #[inline]
             pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -50,6 +485,7 @@ pub mod isotime {
                 if let Some(x) = args.key {
                     builder.add_key(x);
                 }
+                builder.add_value_type(args.value_type);
                 builder.finish()
             }
 
@@ -67,16 +503,56 @@ pub mod isotime {
                 }
             }
             #[inline]
-            pub fn value(&self) -> Option<::flatbuffers::Vector<'a, u8>> {
+            pub fn value_type(&self) -> ValueType {
                 // Safety:
                 // Created from valid Table for this object
                 // which contains a valid value in this slot
                 unsafe {
                     self._tab
-                        .get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u8>>>(
+                        .get::<ValueType>(Entry::VT_VALUE_TYPE, Some(ValueType::NONE))
+                        .unwrap()
+                }
+            }
+            #[inline]
+            pub fn value(&self) -> Option<::flatbuffers::Table<'a>> {
+                // Safety:
+                // Created from valid Table for this object
+                // which contains a valid value in this slot
+                unsafe {
+                    self._tab
+                        .get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Table<'a>>>(
                             Entry::VT_VALUE,
                             None,
                         )
+                }
+            }
+            #[inline]
+            #[allow(non_snake_case)]
+            pub fn value_as_raw_value(&self) -> Option<RawValue<'a>> {
+                if self.value_type() == ValueType::RawValue {
+                    self.value().map(|t| {
+                        // Safety:
+                        // Created from a valid Table for this object
+                        // Which contains a valid union in this slot
+                        unsafe { RawValue::init_from_table(t) }
+                    })
+                } else {
+                    None
+                }
+            }
+
+            #[inline]
+            #[allow(non_snake_case)]
+            pub fn value_as_ref_value(&self) -> Option<RefValue<'a>> {
+                if self.value_type() == ValueType::RefValue {
+                    self.value().map(|t| {
+                        // Safety:
+                        // Created from a valid Table for this object
+                        // Which contains a valid union in this slot
+                        unsafe { RefValue::init_from_table(t) }
+                    })
+                } else {
+                    None
                 }
             }
         }
@@ -93,10 +569,25 @@ pub mod isotime {
                         Self::VT_KEY,
                         false,
                     )?
-                    .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u8>>>(
+                    .visit_union::<ValueType, _>(
+                        "value_type",
+                        Self::VT_VALUE_TYPE,
                         "value",
                         Self::VT_VALUE,
                         false,
+                        |key, v, pos| match key {
+                            ValueType::RawValue => v
+                                .verify_union_variant::<::flatbuffers::ForwardsUOffset<RawValue>>(
+                                    "ValueType::RawValue",
+                                    pos,
+                                ),
+                            ValueType::RefValue => v
+                                .verify_union_variant::<::flatbuffers::ForwardsUOffset<RefValue>>(
+                                    "ValueType::RefValue",
+                                    pos,
+                                ),
+                            _ => Ok(()),
+                        },
                     )?
                     .finish();
                 Ok(())
@@ -104,13 +595,15 @@ pub mod isotime {
         }
         pub struct EntryArgs<'a> {
             pub key: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u8>>>,
-            pub value: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u8>>>,
+            pub value_type: ValueType,
+            pub value: Option<::flatbuffers::WIPOffset<::flatbuffers::UnionWIPOffset>>,
         }
         impl<'a> Default for EntryArgs<'a> {
             #[inline]
             fn default() -> Self {
                 EntryArgs {
                     key: None,
+                    value_type: ValueType::NONE,
                     value: None,
                 }
             }
@@ -130,9 +623,14 @@ pub mod isotime {
                     .push_slot_always::<::flatbuffers::WIPOffset<_>>(Entry::VT_KEY, key);
             }
             #[inline]
+            pub fn add_value_type(&mut self, value_type: ValueType) {
+                self.fbb_
+                    .push_slot::<ValueType>(Entry::VT_VALUE_TYPE, value_type, ValueType::NONE);
+            }
+            #[inline]
             pub fn add_value(
                 &mut self,
-                value: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b, u8>>,
+                value: ::flatbuffers::WIPOffset<::flatbuffers::UnionWIPOffset>,
             ) {
                 self.fbb_
                     .push_slot_always::<::flatbuffers::WIPOffset<_>>(Entry::VT_VALUE, value);
@@ -158,7 +656,33 @@ pub mod isotime {
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 let mut ds = f.debug_struct("Entry");
                 ds.field("key", &self.key());
-                ds.field("value", &self.value());
+                ds.field("value_type", &self.value_type());
+                match self.value_type() {
+                    ValueType::RawValue => {
+                        if let Some(x) = self.value_as_raw_value() {
+                            ds.field("value", &x)
+                        } else {
+                            ds.field(
+                                "value",
+                                &"InvalidFlatbuffer: Union discriminant does not match value.",
+                            )
+                        }
+                    }
+                    ValueType::RefValue => {
+                        if let Some(x) = self.value_as_ref_value() {
+                            ds.field("value", &x)
+                        } else {
+                            ds.field(
+                                "value",
+                                &"InvalidFlatbuffer: Union discriminant does not match value.",
+                            )
+                        }
+                    }
+                    _ => {
+                        let x: Option<()> = None;
+                        ds.field("value", &x)
+                    }
+                };
                 ds.finish()
             }
         }

@@ -20,7 +20,7 @@ graph TD
 
   subgraph Reasoning_Layer [Chronos AI]
     Mojo[Mojo Inference]
-  end
+  }
 
   QG <--> SHM
   SHM -- Zero-copy --> Streaming
@@ -39,10 +39,12 @@ The storage engine employs a custom Log-Structured Merge-Tree (LSM-Tree) optimiz
 - **SSTable (Sorted String Table):** On-disk storage format using **FlatBuffers** for zero-copy deserialization. Data is sorted by time and key for efficient range scans.
 - **Bloom Filters:** Each SSTable is accompanied by a Bloom Filter to drastically reduce unnecessary disk reads by checking if a key potentially exists in a file before opening it.
 - **Compaction (TWCS):** Utilizes a Time-Windowed Compaction Strategy to merge smaller SSTables into larger ones, maintaining high read performance and optimizing disk space.
+- **Value Sharing (De-duplication):** SSTables implement block-local value sharing. Identical values within a single SSTable are stored once as a `RawValue` and subsequent occurrences refer to it via `RefValue` offsets, significantly reducing disk footprint for redundant time-series data.
+- **SIMD Delta-Delta Compression:** Values containing sequences of 64-bit integers (e.g., timestamps) are compressed using a SIMD-accelerated Delta-Delta algorithm. It utilizes portable SIMD (`core::simd`) with runtime CPU feature dispatch (AVX2) to achieve high-speed compression and decompression during the flush and read paths.
 
 ## 🛠️ Technology Stack
-- **Programming Languages:** Rust
-- **Tooling & Infrastructure:** Tokio, io_uring, FlatBuffers, SIMD (AVX-512), LSM-Tree
+- **Programming Languages:** Rust (Nightly)
+- **Tooling & Infrastructure:** Tokio, io_uring, FlatBuffers, SIMD (AVX2/Portable SIMD), LSM-Tree
 - **Core Pattern:** Formal Immutability
 - **Strategy:** Bridging active cognition with infinite historical context through causal-aware delta storage.
 

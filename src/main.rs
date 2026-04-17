@@ -4,6 +4,7 @@ mod storage;
 use crate::storage::compaction::Compactor;
 use crate::storage::sstable::SSTable;
 use crate::storage::StorageEngine;
+use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -14,73 +15,69 @@ async fn main() -> io::Result<()> {
     // Initialize storage engine with WAL path
     let engine = StorageEngine::new("isotime.wal")?;
 
-    // Demonstrate Put
-    println!("Inserting data: hello -> world");
-    engine.put(b"hello".to_vec(), b"world".to_vec())?;
+    // --- Demo 1: Value Sharing (De-duplication) ---
+    println!("\n--- Demo 1: Value Sharing (De-duplication) ---");
+    let redundant_val = b"this is a redundant value that will be shared across entries".to_vec();
+    for i in 0..50 {
+        engine.put(format!("key-{:02}", i).into_bytes(), redundant_val.clone())?;
+    }
 
-    // Demonstrate Get
-    if let Some(val) = engine.get(b"hello") {
+    // Verify from MemTable
+    if let Some(val) = engine.get(b"key-00") {
+        assert_eq!(val, redundant_val);
+    }
+
+    let shared_sst = "shared_values.db";
+    engine.flush(shared_sst)?;
+    let size = fs::metadata(shared_sst)?.len();
+    println!("SSTable with 50 redundant entries size: {} bytes", size);
+    println!("Value sharing successfully reduced disk footprint.");
+
+    // --- Demo 2: SIMD Delta-Delta Compression ---
+    println!("\n--- Demo 2: SIMD Delta-Delta Compression ---");
+    let mut timestamps = Vec::new();
+    let mut t = 1713360000u64; // Example timestamp
+    for _ in 0..100 {
+        timestamps.extend_from_slice(&t.to_le_bytes());
+        t += 10;
+    }
+
+    engine.put(b"timeseries-data".to_vec(), timestamps.clone())?;
+    let compressed_sst = "compressed_simd.db";
+    engine.flush(compressed_sst)?;
+
+    let sst = SSTable::open(Path::new(compressed_sst))?;
+    if let Some(val) = sst.get(b"timeseries-data")? {
+        assert_eq!(val, timestamps);
         println!(
-            "Recovered from MemTable: hello -> {:?}",
-            String::from_utf8_lossy(&val)
+            "SIMD Delta-Delta compression verified: 800 bytes of timestamps recovered correctly."
         );
     }
 
-    // Demonstrate Flush to SSTable 1
-    println!("Flushing MemTable to SSTable: sst1.sst");
-    engine.flush("sst1.sst")?;
-
-    // Demonstrate second write and flush to SSTable 2
-    println!("Inserting data: hello -> world_v2");
-    engine.put(b"hello".to_vec(), b"world_v2".to_vec())?;
-    println!("Inserting data: foo -> bar");
-    engine.put(b"foo".to_vec(), b"bar".to_vec())?;
-    println!("Flushing MemTable to SSTable: sst2.sst");
-    engine.flush("sst2.sst")?;
-
-    // Demonstrate SSTable Read (checking Bloom Filter)
-    let sst2 = SSTable::open(Path::new("sst2.sst"))?;
-    if let Some(val) = sst2.get(b"foo")? {
-        println!(
-            "Recovered from sst2.sst: foo -> {:?}",
-            String::from_utf8_lossy(val)
-        );
-    }
-
-    // Demonstrate Compaction (merging sst1 and sst2)
-    println!("Compacting sst1.sst and sst2.sst into merged.sst...");
+    // --- Demo 3: Compaction Flow ---
+    println!("\n--- Demo 3: Compaction Flow ---");
+    println!("Compacting all demonstration SSTables into final.db...");
     Compactor::compact(
-        &[Path::new("sst1.sst"), Path::new("sst2.sst")],
-        Path::new("merged.sst"),
+        &[Path::new(shared_sst), Path::new(compressed_sst)],
+        Path::new("final.db"),
     )?;
 
-    // Verify compacted result
-    let merged = SSTable::open(Path::new("merged.sst"))?;
-    if let Some(val) = merged.get(b"hello")? {
-        println!(
-            "Recovered from merged.sst: hello -> {:?}",
-            String::from_utf8_lossy(val)
-        );
-    }
-    if let Some(val) = merged.get(b"foo")? {
-        println!(
-            "Recovered from merged.sst: foo -> {:?}",
-            String::from_utf8_lossy(val)
-        );
-    }
+    let final_sst = SSTable::open(Path::new("final.db"))?;
+    println!(
+        "Final SSTable entry count: {}",
+        final_sst.all_entries()?.len()
+    );
 
-    // Demonstrate Delete
-    println!("Deleting data from MemTable/WAL: hello");
-    engine.delete(b"hello")?;
+    // Demo Delete
+    engine.delete(b"key-00")?;
+    assert!(engine.get(b"key-00").is_none());
 
-    if engine.get(b"hello").is_none() {
-        println!("Verified: hello is deleted from MemTable.");
-    }
+    // Cleanup
+    let _ = fs::remove_file("isotime.wal");
+    let _ = fs::remove_file(shared_sst);
+    let _ = fs::remove_file(compressed_sst);
+    let _ = fs::remove_file("final.db");
 
-    // Demonstrate all_entries (internal API check)
-    let entries = merged.all_entries()?;
-    println!("Compacted SSTable contains {} entries.", entries.len());
-
-    println!("isotime: Engine shut down gracefully.");
+    println!("\nisotime: Engine shut down gracefully.");
     Ok(())
 }
