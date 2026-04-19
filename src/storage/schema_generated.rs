@@ -17,14 +17,17 @@ pub mod isotime {
             since = "2.0.0",
             note = "Use associated constants instead. This will no longer be generated in 2021."
         )]
-        pub const ENUM_MAX_COMPRESSION_TYPE: i8 = 1;
+        pub const ENUM_MAX_COMPRESSION_TYPE: i8 = 2;
         #[deprecated(
             since = "2.0.0",
             note = "Use associated constants instead. This will no longer be generated in 2021."
         )]
         #[allow(non_camel_case_types)]
-        pub const ENUM_VALUES_COMPRESSION_TYPE: [CompressionType; 2] =
-            [CompressionType::None, CompressionType::DeltaDelta];
+        pub const ENUM_VALUES_COMPRESSION_TYPE: [CompressionType; 3] = [
+            CompressionType::None,
+            CompressionType::DeltaDelta,
+            CompressionType::BitPackedDelta,
+        ];
 
         #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
         #[repr(transparent)]
@@ -33,15 +36,18 @@ pub mod isotime {
         impl CompressionType {
             pub const None: Self = Self(0);
             pub const DeltaDelta: Self = Self(1);
+            pub const BitPackedDelta: Self = Self(2);
 
             pub const ENUM_MIN: i8 = 0;
-            pub const ENUM_MAX: i8 = 1;
-            pub const ENUM_VALUES: &'static [Self] = &[Self::None, Self::DeltaDelta];
+            pub const ENUM_MAX: i8 = 2;
+            pub const ENUM_VALUES: &'static [Self] =
+                &[Self::None, Self::DeltaDelta, Self::BitPackedDelta];
             /// Returns the variant's name or "" if unknown.
             pub fn variant_name(self) -> Option<&'static str> {
                 match self {
                     Self::None => Some("None"),
                     Self::DeltaDelta => Some("DeltaDelta"),
+                    Self::BitPackedDelta => Some("BitPackedDelta"),
                     _ => None,
                 }
             }
