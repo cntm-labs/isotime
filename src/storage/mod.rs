@@ -6,6 +6,7 @@ pub mod compressor;
 pub mod encryption;
 pub mod memtable;
 pub mod sstable;
+pub mod tiering;
 pub mod wal;
 
 use crate::storage::bus::BusManager;
@@ -14,6 +15,7 @@ use crate::storage::compressor::CompressionPolicy;
 use crate::storage::encryption::EncryptionManager;
 use crate::storage::memtable::MemTable;
 use crate::storage::sstable::SSTable;
+use crate::storage::tiering::SSTableMetadata;
 use crate::storage::wal::{Wal, WalOp};
 use std::io;
 use std::path::Path;
@@ -25,6 +27,7 @@ pub struct StorageEngine {
     pub encryption: Option<Arc<EncryptionManager>>,
     pub policy: CompressionPolicy,
     pub cas: Arc<CASManager>,
+    pub metadatas: Arc<Mutex<Vec<SSTableMetadata>>>,
 }
 
 impl StorageEngine {
@@ -46,6 +49,7 @@ impl StorageEngine {
 
         let encryption = key.map(|k| Arc::new(EncryptionManager::new(&k)));
         let cas = Arc::new(CASManager::new(cas_root)?);
+        let metadatas = Arc::new(Mutex::new(Vec::new()));
 
         Ok(Self {
             memtable: Arc::new(memtable),
@@ -53,6 +57,7 @@ impl StorageEngine {
             encryption,
             policy,
             cas,
+            metadatas,
         })
     }
 
