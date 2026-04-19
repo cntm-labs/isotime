@@ -27,25 +27,28 @@ impl Compressor {
             return (CompressionType::None, data.to_vec());
         }
 
-        // Only attempt DeltaDelta or BitPacked if we have enough 64-bit values
-        if data.len() >= 32 && data.len().is_multiple_of(8) {
-            if policy == CompressionPolicy::ExtremeSpace {
-                return (
-                    CompressionType::BitPackedDelta,
-                    Self::compress_bitpacked(data),
-                );
-            }
+        let enough_data = data.len() >= 32 && data.len().is_multiple_of(8);
 
-            #[cfg(feature = "simd")]
-            if std::is_x86_feature_detected!("avx2") {
-                return (
-                    CompressionType::DeltaDelta,
-                    Self::compress_delta_delta_simd(data),
-                );
-            }
+        // BitPacked compression for ExtremeSpace policy
+        if enough_data && policy == CompressionPolicy::ExtremeSpace {
+            return (
+                CompressionType::BitPackedDelta,
+                Self::compress_bitpacked(data),
+            );
+        }
 
-            #[cfg(feature = "simd")]
-            #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+        // SIMD-accelerated DeltaDelta compression
+        #[cfg(feature = "simd")]
+        if enough_data && std::is_x86_feature_detected!("avx2") {
+            return (
+                CompressionType::DeltaDelta,
+                Self::compress_delta_delta_simd(data),
+            );
+        }
+
+        #[cfg(feature = "simd")]
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+        if enough_data {
             return (
                 CompressionType::DeltaDelta,
                 Self::compress_delta_delta_simd(data),
