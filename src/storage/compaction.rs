@@ -129,8 +129,14 @@ mod tests {
 
         // Verify
         let result = SSTable::open(&final_path, None).unwrap();
-        assert_eq!(result.get(b"k1", None).unwrap(), Some(b"v1_updated".to_vec()));
-        assert_eq!(result.get(b"k2", None).unwrap(), Some(b"v2_updated".to_vec()));
+        assert_eq!(
+            result.get(b"k1", None).unwrap(),
+            Some(b"v1_updated".to_vec())
+        );
+        assert_eq!(
+            result.get(b"k2", None).unwrap(),
+            Some(b"v2_updated".to_vec())
+        );
         assert_eq!(result.get(b"k3", None).unwrap(), Some(b"v3".to_vec()));
         assert_eq!(result.get(b"k4", None).unwrap(), Some(b"v4".to_vec()));
 
@@ -199,10 +205,24 @@ mod tests {
         let val = b"shared-global-value".to_vec();
         data1.insert(b"key1".to_vec(), val.clone());
 
-        SSTable::write(&sst1_path, data1, None, CompressionPolicy::ExtremeSpace, Some(&cas)).unwrap();
+        SSTable::write(
+            &sst1_path,
+            data1,
+            None,
+            CompressionPolicy::ExtremeSpace,
+            Some(&cas),
+        )
+        .unwrap();
 
         // Compact
-        Compactor::compact(&[&sst1_path], &merged_path, None, CompressionPolicy::ExtremeSpace, Some(&cas)).unwrap();
+        Compactor::compact(
+            &[&sst1_path],
+            &merged_path,
+            None,
+            CompressionPolicy::ExtremeSpace,
+            Some(&cas),
+        )
+        .unwrap();
 
         // Verify
         let merged = SSTable::open(&merged_path, None).unwrap();

@@ -125,7 +125,9 @@ mod tests {
             fs::remove_file(wal_path).unwrap();
         }
 
-        let engine = StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path()).unwrap();
+        let engine =
+            StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                .unwrap();
         engine.put(b"key1".to_vec(), b"value1".to_vec()).unwrap();
         assert_eq!(engine.get(b"key1").unwrap(), Some(b"value1".to_vec()));
         assert_eq!(engine.get(b"key2").unwrap(), None);
@@ -142,14 +144,18 @@ mod tests {
         }
 
         {
-            let engine = StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path()).unwrap();
+            let engine =
+                StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                    .unwrap();
             engine.put(b"key1".to_vec(), b"value1".to_vec()).unwrap();
             engine.put(b"key2".to_vec(), b"value2".to_vec()).unwrap();
             engine.delete(b"key1").unwrap();
         }
 
         {
-            let engine = StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path()).unwrap();
+            let engine =
+                StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                    .unwrap();
             assert_eq!(engine.get(b"key1").unwrap(), None);
             assert_eq!(engine.get(b"key2").unwrap(), Some(b"value2".to_vec()));
         }
@@ -165,7 +171,10 @@ mod tests {
             fs::remove_file(wal_path).unwrap();
         }
 
-        let engine = Arc::new(StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path()).unwrap());
+        let engine = Arc::new(
+            StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                .unwrap(),
+        );
         let num_threads = 4;
         let num_inserts = 1000;
         let mut handles = vec![];
@@ -208,12 +217,17 @@ mod tests {
             fs::remove_file(sst_path).unwrap();
         }
 
-        let engine = StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path()).unwrap();
+        let engine =
+            StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                .unwrap();
         engine.put(b"k1".to_vec(), b"v1".to_vec()).unwrap();
         engine.flush(sst_path).unwrap();
 
         let sstable = SSTable::open(Path::new(sst_path), None).unwrap();
-        assert_eq!(sstable.get(b"k1", Some(&engine.cas)).unwrap(), Some(b"v1".to_vec()));
+        assert_eq!(
+            sstable.get(b"k1", Some(&engine.cas)).unwrap(),
+            Some(b"v1".to_vec())
+        );
 
         fs::remove_file(wal_path).unwrap();
         fs::remove_file(sst_path).unwrap();
@@ -231,7 +245,9 @@ mod tests {
             fs::remove_file(bus_path).unwrap();
         }
 
-        let engine = StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path()).unwrap();
+        let engine =
+            StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                .unwrap();
         let mut bus = BusManager::new(bus_path, 10).unwrap();
 
         let event = DeltaEvent {
@@ -270,18 +286,41 @@ mod tests {
         }
 
         let key = [0u8; 32];
-        let engine = StorageEngine::new(wal_path, Some(key), CompressionPolicy::Balanced, cas_dir.path()).unwrap();
-        engine.put(b"secure_key".to_vec(), b"secure_value".to_vec()).unwrap();
+        let engine = StorageEngine::new(
+            wal_path,
+            Some(key),
+            CompressionPolicy::Balanced,
+            cas_dir.path(),
+        )
+        .unwrap();
+        engine
+            .put(b"secure_key".to_vec(), b"secure_value".to_vec())
+            .unwrap();
         engine.flush(sst_path).unwrap();
 
         // Read back with same key
-        let engine2 = StorageEngine::new("another.wal", Some(key), CompressionPolicy::Balanced, cas_dir.path()).unwrap();
+        let engine2 = StorageEngine::new(
+            "another.wal",
+            Some(key),
+            CompressionPolicy::Balanced,
+            cas_dir.path(),
+        )
+        .unwrap();
         let sstable = SSTable::open(Path::new(sst_path), engine2.encryption.as_deref()).unwrap();
-        assert_eq!(sstable.get(b"secure_key", Some(&engine2.cas)).unwrap(), Some(b"secure_value".to_vec()));
+        assert_eq!(
+            sstable.get(b"secure_key", Some(&engine2.cas)).unwrap(),
+            Some(b"secure_value".to_vec())
+        );
 
         // Fail to read with wrong key
         let wrong_key = [1u8; 32];
-        let engine3 = StorageEngine::new("yet_another.wal", Some(wrong_key), CompressionPolicy::Balanced, cas_dir.path()).unwrap();
+        let engine3 = StorageEngine::new(
+            "yet_another.wal",
+            Some(wrong_key),
+            CompressionPolicy::Balanced,
+            cas_dir.path(),
+        )
+        .unwrap();
         assert!(SSTable::open(Path::new(sst_path), engine3.encryption.as_deref()).is_err());
 
         fs::remove_file(wal_path).unwrap();

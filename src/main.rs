@@ -45,7 +45,12 @@ async fn main() -> io::Result<()> {
     }
 
     // Initialize storage engine with Balanced policy
-    let engine = StorageEngine::new("isotime.wal", encryption_key, CompressionPolicy::Balanced, cas_root)?;
+    let engine = StorageEngine::new(
+        "isotime.wal",
+        encryption_key,
+        CompressionPolicy::Balanced,
+        cas_root,
+    )?;
 
     // --- Demo 1: Value Sharing (De-duplication) ---
     println!("\n--- Demo 1: Value Sharing (De-duplication) ---");
@@ -101,12 +106,17 @@ async fn main() -> io::Result<()> {
     // --- Demo 4: Global CAS (Cross-SSTable De-duplication) ---
     println!("\n--- Demo 4: Global CAS ---");
     let global_val = b"global-cas-value-that-is-shared-across-files".to_vec();
-    
+
     // Create engine with ExtremeSpace policy to trigger Global CAS
-    let engine_extreme = StorageEngine::new("extreme.wal", encryption_key, CompressionPolicy::ExtremeSpace, cas_root)?;
+    let engine_extreme = StorageEngine::new(
+        "extreme.wal",
+        encryption_key,
+        CompressionPolicy::ExtremeSpace,
+        cas_root,
+    )?;
     engine_extreme.put(b"cas-key-1".to_vec(), global_val.clone())?;
     engine_extreme.flush("cas_1.db")?;
-    
+
     engine_extreme.put(b"cas-key-2".to_vec(), global_val.clone())?;
     engine_extreme.flush("cas_2.db")?;
 
@@ -114,7 +124,7 @@ async fn main() -> io::Result<()> {
     let size2 = fs::metadata("cas_2.db")?.len();
     println!("SSTable 1 size: {} bytes", size1);
     println!("SSTable 2 size: {} bytes", size2);
-    
+
     let cas_files: Vec<_> = fs::read_dir(cas_root)?.collect();
     println!("Global CAS objects count: {}", cas_files.len());
 

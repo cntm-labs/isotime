@@ -37,45 +37,48 @@ impl SSTable {
             bloom.add(&key);
             let key_vec = fbb.create_vector(&key);
 
-            let (value_type, value_offset) = if policy != CompressionPolicy::Fastest
-                && value_store.contains_key(&value)
-            {
-                let &orig_idx = value_store.get(&value).unwrap();
-                // Value seen before, use RefValue
-                let ref_value =
-                    fbs::RefValue::create(&mut fbb, &fbs::RefValueArgs { offset: orig_idx });
-                (fbs::ValueType::RefValue, ref_value.as_union_value())
-            } else if policy == CompressionPolicy::ExtremeSpace && cas.is_some() {
-                // Check Global CAS
-                let cas_manager = cas.unwrap();
-                let hash = cas_manager.put(&value)?;
-                let hash_vec = fbb.create_vector(&hash);
-                let hash_value =
-                    fbs::HashValue::create(&mut fbb, &fbs::HashValueArgs { hash: Some(hash_vec) });
-                (fbs::ValueType::HashValue, hash_value.as_union_value())
-            } else {
-                // New value (or Fastest policy which skips de-dupe), use RawValue
-                if policy != CompressionPolicy::Fastest {
-                    value_store.insert(value.clone(), i as u32);
-                }
+            let (value_type, value_offset) =
+                if policy != CompressionPolicy::Fastest && value_store.contains_key(&value) {
+                    let &orig_idx = value_store.get(&value).unwrap();
+                    // Value seen before, use RefValue
+                    let ref_value =
+                        fbs::RefValue::create(&mut fbb, &fbs::RefValueArgs { offset: orig_idx });
+                    (fbs::ValueType::RefValue, ref_value.as_union_value())
+                } else if policy == CompressionPolicy::ExtremeSpace && cas.is_some() {
+                    // Check Global CAS
+                    let cas_manager = cas.unwrap();
+                    let hash = cas_manager.put(&value)?;
+                    let hash_vec = fbb.create_vector(&hash);
+                    let hash_value = fbs::HashValue::create(
+                        &mut fbb,
+                        &fbs::HashValueArgs {
+                            hash: Some(hash_vec),
+                        },
+                    );
+                    (fbs::ValueType::HashValue, hash_value.as_union_value())
+                } else {
+                    // New value (or Fastest policy which skips de-dupe), use RawValue
+                    if policy != CompressionPolicy::Fastest {
+                        value_store.insert(value.clone(), i as u32);
+                    }
 
-                // Compress value
-                let (ctype, compressed_data) = Compressor::compress(&value, policy);
-                let fbs_ctype = match ctype {
-                    CompressionType::None => fbs::CompressionType::None,
-                    CompressionType::DeltaDelta => fbs::CompressionType::DeltaDelta,
+                    // Compress value
+                    let (ctype, compressed_data) = Compressor::compress(&value, policy);
+                    let fbs_ctype = match ctype {
+                        CompressionType::None => fbs::CompressionType::None,
+                        CompressionType::DeltaDelta => fbs::CompressionType::DeltaDelta,
+                    };
+
+                    let data_vec = fbb.create_vector(&compressed_data);
+                    let raw_value = fbs::RawValue::create(
+                        &mut fbb,
+                        &fbs::RawValueArgs {
+                            data: Some(data_vec),
+                            compression: fbs_ctype,
+                        },
+                    );
+                    (fbs::ValueType::RawValue, raw_value.as_union_value())
                 };
-
-                let data_vec = fbb.create_vector(&compressed_data);
-                let raw_value = fbs::RawValue::create(
-                    &mut fbb,
-                    &fbs::RawValueArgs {
-                        data: Some(data_vec),
-                        compression: fbs_ctype,
-                    },
-                );
-                (fbs::ValueType::RawValue, raw_value.as_union_value())
-            };
 
             let entry = fbs::Entry::create(
                 &mut fbb,
@@ -207,7 +210,10 @@ impl SSTable {
 
                 let mut hash = [0u8; 32];
                 if hash_bytes.len() != 32 {
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid hash length"));
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Invalid hash length",
+                    ));
                 }
                 hash.copy_from_slice(hash_bytes);
 
@@ -314,8 +320,14 @@ mod tests {
         let sstable = SSTable::open(&path, None).expect("Failed to open SSTable");
 
         // Positive cases
-        assert_eq!(sstable.get(b"key1", None).unwrap(), Some(b"value1".to_vec()));
-        assert_eq!(sstable.get(b"key2", None).unwrap(), Some(b"value2".to_vec()));
+        assert_eq!(
+            sstable.get(b"key1", None).unwrap(),
+            Some(b"value1".to_vec())
+        );
+        assert_eq!(
+            sstable.get(b"key2", None).unwrap(),
+            Some(b"value2".to_vec())
+        );
 
         // Negative case (Bloom filter should prune this)
         assert_eq!(sstable.get(b"non_existent", None).unwrap(), None);
@@ -345,7 +357,9 @@ mod tests {
         let sstable = SSTable::open(&path, None).expect("Failed to open SSTable");
         for i in 0..100 {
             assert_eq!(
-                sstable.get(format!("key{:03}", i).as_bytes(), None).unwrap(),
+                sstable
+                    .get(format!("key{:03}", i).as_bytes(), None)
+                    .unwrap(),
                 Some(common_value.clone())
             );
         }
@@ -381,7 +395,10 @@ mod tests {
             sstable.get(b"key3", None).expect("Failed to get key3"),
             Some(b"value3".to_vec())
         );
-        assert_eq!(sstable.get(b"key4", None).expect("Failed to get key4"), None);
+        assert_eq!(
+            sstable.get(b"key4", None).expect("Failed to get key4"),
+            None
+        );
 
         fs::remove_file(&path).unwrap();
     }
