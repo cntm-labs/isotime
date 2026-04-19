@@ -3,6 +3,7 @@ use isotime::storage::compaction::Compactor;
 use isotime::storage::compressor::CompressionPolicy;
 use isotime::storage::encryption::EncryptionManager;
 use isotime::storage::sstable::SSTable;
+use isotime::storage::tiering::{SSTableMetadata, StorageTier};
 use isotime::storage::StorageEngine;
 use std::collections::BTreeMap;
 use std::fs;
@@ -130,8 +131,23 @@ async fn main() -> io::Result<()> {
 
     // --- Demo 5: Compaction ---
     println!("\n--- Demo 5: Compaction ---");
+    let meta1 = SSTableMetadata {
+        path: Path::new(shared_sst).to_path_buf(),
+        tier: StorageTier::L0,
+        window_start: 0,
+        window_end: 1000,
+        size_bytes: fs::metadata(shared_sst)?.len(),
+    };
+    let meta2 = SSTableMetadata {
+        path: Path::new(compressed_sst).to_path_buf(),
+        tier: StorageTier::L0,
+        window_start: 0,
+        window_end: 1000,
+        size_bytes: fs::metadata(compressed_sst)?.len(),
+    };
+
     Compactor::compact(
-        &[Path::new(shared_sst), Path::new(compressed_sst)],
+        &[meta1, meta2],
         Path::new("final.db"),
         enc_manager,
         engine.policy,
