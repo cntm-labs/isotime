@@ -67,6 +67,7 @@ impl SSTable {
                     let fbs_ctype = match ctype {
                         CompressionType::None => fbs::CompressionType::None,
                         CompressionType::DeltaDelta => fbs::CompressionType::DeltaDelta,
+                        CompressionType::BitPackedDelta => fbs::CompressionType::BitPackedDelta,
                     };
 
                     let data_vec = fbb.create_vector(&compressed_data);
@@ -178,6 +179,7 @@ impl SSTable {
                 let ctype = match raw.compression() {
                     fbs::CompressionType::None => CompressionType::None,
                     fbs::CompressionType::DeltaDelta => CompressionType::DeltaDelta,
+                    fbs::CompressionType::BitPackedDelta => CompressionType::BitPackedDelta,
                     _ => CompressionType::None,
                 };
 
