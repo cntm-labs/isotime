@@ -37,23 +37,20 @@ impl Compressor {
             }
 
             #[cfg(feature = "simd")]
+            if std::is_x86_feature_detected!("avx2") {
+                return (
+                    CompressionType::DeltaDelta,
+                    Self::compress_delta_delta_simd(data),
+                );
+            }
+
+            #[cfg(feature = "simd")]
+            #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
             {
-                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-                {
-                    if std::is_x86_feature_detected!("avx2") {
-                        return (
-                            CompressionType::DeltaDelta,
-                            Self::compress_delta_delta_simd(data),
-                        );
-                    }
-                }
-                #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-                {
-                    return (
-                        CompressionType::DeltaDelta,
-                        Self::compress_delta_delta_simd(data),
-                    );
-                }
+                return (
+                    CompressionType::DeltaDelta,
+                    Self::compress_delta_delta_simd(data),
+                );
             }
         }
 
