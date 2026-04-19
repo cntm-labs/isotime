@@ -11,15 +11,18 @@ pub mod wal;
 
 use crate::storage::bus::BusManager;
 use crate::storage::cas::CASManager;
+use crate::storage::compaction::Compactor;
 use crate::storage::compressor::CompressionPolicy;
 use crate::storage::encryption::EncryptionManager;
 use crate::storage::memtable::MemTable;
 use crate::storage::sstable::SSTable;
-use crate::storage::tiering::SSTableMetadata;
+use crate::storage::tiering::{CapacityManager, SSTableMetadata, StorageTier};
 use crate::storage::wal::{Wal, WalOp};
+use std::collections::HashSet;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub struct StorageEngine {
     memtable: Arc<MemTable>,
@@ -28,6 +31,8 @@ pub struct StorageEngine {
     pub policy: CompressionPolicy,
     pub cas: Arc<CASManager>,
     pub metadatas: Arc<Mutex<Vec<SSTableMetadata>>>,
+    pub hot_dir: PathBuf,
+    pub cold_dir: PathBuf,
 }
 
 impl StorageEngine {
@@ -58,7 +63,94 @@ impl StorageEngine {
             policy,
             cas,
             metadatas,
+            hot_dir: PathBuf::from("."),
+            cold_dir: PathBuf::from("./cold"),
         })
+    }
+
+    pub fn spawn_background_tasks(self: Arc<Self>) {
+        let engine = Arc::clone(&self);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                if let Err(e) = engine.run_tiering_cycle() {
+                    eprintln!("Tiering cycle failed: {}", e);
+                }
+            }
+        });
+    }
+
+    fn run_tiering_cycle(&self) -> io::Result<()> {
+        let mut metas = self
+            .metadatas
+            .lock()
+            .map_err(|_| io::Error::other("Lock poisoned"))?;
+
+        // 1. TWCS Compaction
+        for tier in [StorageTier::L0, StorageTier::L1] {
+            let candidates = Compactor::get_merge_candidates(&metas, tier);
+            for group in candidates {
+                let timestamp = group[0].window_start;
+                let dest_name = format!("compacted_{:?}_{}.sst", tier, timestamp);
+                let dest_path = self.hot_dir.join(dest_name);
+
+                let policy = if tier == StorageTier::L1 {
+                    CompressionPolicy::ExtremeSpace
+                } else {
+                    self.policy
+                };
+
+                match Compactor::compact(
+                    &group,
+                    &dest_path,
+                    self.encryption.as_deref(),
+                    policy,
+                    Some(&self.cas),
+                ) {
+                    Ok(new_meta) => {
+                        let paths_to_remove: HashSet<_> =
+                            group.iter().map(|m| m.path.clone()).collect();
+                        metas.retain(|m| !paths_to_remove.contains(&m.path));
+                        for p in paths_to_remove {
+                            let _ = std::fs::remove_file(p);
+                        }
+                        metas.push(new_meta);
+                    }
+                    Err(e) => eprintln!("Compaction failed for {:?}: {}", tier, e),
+                }
+            }
+        }
+
+        // 2. Capacity Eviction (L2 -> L3)
+        let cap_manager = CapacityManager {
+            threshold: 0.85,
+            hot_dir: self.hot_dir.clone(),
+            cold_dir: self.cold_dir.clone(),
+        };
+
+        let eviction_candidates = cap_manager.find_eviction_candidates(&metas);
+        if !eviction_candidates.is_empty() {
+            if !self.cold_dir.exists() {
+                std::fs::create_dir_all(&self.cold_dir)?;
+            }
+
+            for meta_to_move in eviction_candidates {
+                let filename = meta_to_move.path.file_name().unwrap();
+                let new_path = self.cold_dir.join(filename);
+
+                // Physically move file
+                std::fs::rename(&meta_to_move.path, &new_path)?;
+
+                // Update registry
+                if let Some(m) = metas.iter_mut().find(|m| m.path == meta_to_move.path) {
+                    m.path = new_path.clone();
+                    m.tier = StorageTier::L3;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub fn put(&self, key: Vec<u8>, value: Vec<u8>) -> io::Result<()> {
@@ -94,6 +186,21 @@ impl StorageEngine {
             self.policy,
             Some(&self.cas),
         )?;
+
+        let now = SystemTime::now()
+            .duration_since(UNISH_EPOCH)
+            .unwrap_or(Duration::from_secs(0))
+            .as_secs();
+
+        let meta = SSTableMetadata {
+            path: sstable_path.as_ref().to_path_buf(),
+            tier: StorageTier::L0,
+            window_start: now,
+            window_end: now,
+            size_bytes: std::fs::metadata(sstable_path.as_ref())?.len(),
+        };
+
+        self.metadatas.lock().unwrap().push(meta);
         Ok(())
     }
 
@@ -114,13 +221,67 @@ impl StorageEngine {
     }
 }
 
+const UNISH_EPOCH: SystemTime = UNIX_EPOCH;
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::storage::bus::DeltaEvent;
+    use std::collections::BTreeMap;
     use std::fs;
     use std::thread;
     use tempfile::tempdir;
+
+    #[test]
+    fn test_tiering_cycle_integration() {
+        let wal_path = "test_tiering.wal";
+        let cas_dir = tempdir().unwrap();
+        let engine =
+            StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                .unwrap();
+
+        // 1. Create multiple L0 files in same hour
+        let now = SystemTime::now()
+            .duration_since(UNISH_EPOCH)
+            .unwrap()
+            .as_secs();
+        let base_hour = now / 3600 * 3600;
+
+        for i in 0..3 {
+            let path = format!("test_l0_{}.sst", i);
+            let mut data = BTreeMap::new();
+            data.insert(format!("key{}", i).into_bytes(), b"val".to_vec());
+            SSTable::write(
+                Path::new(&path),
+                data,
+                None,
+                CompressionPolicy::Balanced,
+                None,
+            )
+            .unwrap();
+
+            let meta = SSTableMetadata {
+                path: PathBuf::from(&path),
+                tier: StorageTier::L0,
+                window_start: base_hour + i * 10,
+                window_end: base_hour + i * 10 + 5,
+                size_bytes: fs::metadata(&path).unwrap().len(),
+            };
+            engine.metadatas.lock().unwrap().push(meta);
+        }
+
+        // 2. Run cycle -> Should merge L0s into L1
+        engine.run_tiering_cycle().unwrap();
+
+        let metas = engine.metadatas.lock().unwrap();
+        assert_eq!(metas.len(), 1);
+        assert_eq!(metas[0].tier, StorageTier::L1);
+        assert!(metas[0].path.to_string_lossy().contains("compacted_L0"));
+
+        // Cleanup
+        let _ = fs::remove_file(metas[0].path.clone());
+        let _ = fs::remove_file(wal_path);
+    }
 
     #[test]
     fn test_storage_engine_put_get() {
@@ -233,6 +394,9 @@ mod tests {
             sstable.get(b"k1", Some(&engine.cas)).unwrap(),
             Some(b"v1".to_vec())
         );
+
+        // Verify metadata was recorded
+        assert_eq!(engine.metadatas.lock().unwrap().len(), 1);
 
         fs::remove_file(wal_path).unwrap();
         fs::remove_file(sst_path).unwrap();
