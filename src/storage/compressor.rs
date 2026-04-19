@@ -28,7 +28,7 @@ impl Compressor {
         }
 
         // Only attempt DeltaDelta or BitPacked if we have enough 64-bit values
-        if data.len() >= 32 && data.len() % 8 == 0 {
+        if data.len() >= 32 && data.len().is_multiple_of(8) {
             if policy == CompressionPolicy::ExtremeSpace {
                 return (
                     CompressionType::BitPackedDelta,
