@@ -106,14 +106,18 @@ pub mod isotime {
             since = "2.0.0",
             note = "Use associated constants instead. This will no longer be generated in 2021."
         )]
-        pub const ENUM_MAX_VALUE_TYPE: u8 = 2;
+        pub const ENUM_MAX_VALUE_TYPE: u8 = 3;
         #[deprecated(
             since = "2.0.0",
             note = "Use associated constants instead. This will no longer be generated in 2021."
         )]
         #[allow(non_camel_case_types)]
-        pub const ENUM_VALUES_VALUE_TYPE: [ValueType; 3] =
-            [ValueType::NONE, ValueType::RawValue, ValueType::RefValue];
+        pub const ENUM_VALUES_VALUE_TYPE: [ValueType; 4] = [
+            ValueType::NONE,
+            ValueType::RawValue,
+            ValueType::RefValue,
+            ValueType::HashValue,
+        ];
 
         #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
         #[repr(transparent)]
@@ -123,16 +127,19 @@ pub mod isotime {
             pub const NONE: Self = Self(0);
             pub const RawValue: Self = Self(1);
             pub const RefValue: Self = Self(2);
+            pub const HashValue: Self = Self(3);
 
             pub const ENUM_MIN: u8 = 0;
-            pub const ENUM_MAX: u8 = 2;
-            pub const ENUM_VALUES: &'static [Self] = &[Self::NONE, Self::RawValue, Self::RefValue];
+            pub const ENUM_MAX: u8 = 3;
+            pub const ENUM_VALUES: &'static [Self] =
+                &[Self::NONE, Self::RawValue, Self::RefValue, Self::HashValue];
             /// Returns the variant's name or "" if unknown.
             pub fn variant_name(self) -> Option<&'static str> {
                 match self {
                     Self::NONE => Some("NONE"),
                     Self::RawValue => Some("RawValue"),
                     Self::RefValue => Some("RefValue"),
+                    Self::HashValue => Some("HashValue"),
                     _ => None,
                 }
             }
@@ -442,6 +449,125 @@ pub mod isotime {
                 ds.finish()
             }
         }
+        pub enum HashValueOffset {}
+        #[derive(Copy, Clone, PartialEq)]
+
+        pub struct HashValue<'a> {
+            pub _tab: ::flatbuffers::Table<'a>,
+        }
+
+        impl<'a> ::flatbuffers::Follow<'a> for HashValue<'a> {
+            type Inner = HashValue<'a>;
+            #[inline]
+            unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+                Self {
+                    _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+                }
+            }
+        }
+
+        impl<'a> HashValue<'a> {
+            pub const VT_HASH: ::flatbuffers::VOffsetT = 4;
+
+            #[inline]
+            pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+                HashValue { _tab: table }
+            }
+            #[allow(unused_mut)]
+            pub fn create<
+                'bldr: 'args,
+                'args: 'mut_bldr,
+                'mut_bldr,
+                A: ::flatbuffers::Allocator + 'bldr,
+            >(
+                _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+                args: &'args HashValueArgs<'args>,
+            ) -> ::flatbuffers::WIPOffset<HashValue<'bldr>> {
+                let mut builder = HashValueBuilder::new(_fbb);
+                if let Some(x) = args.hash {
+                    builder.add_hash(x);
+                }
+                builder.finish()
+            }
+
+            #[inline]
+            pub fn hash(&self) -> Option<::flatbuffers::Vector<'a, u8>> {
+                // Safety:
+                // Created from valid Table for this object
+                // which contains a valid value in this slot
+                unsafe {
+                    self._tab
+                        .get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u8>>>(
+                            HashValue::VT_HASH,
+                            None,
+                        )
+                }
+            }
+        }
+
+        impl ::flatbuffers::Verifiable for HashValue<'_> {
+            #[inline]
+            fn run_verifier(
+                v: &mut ::flatbuffers::Verifier,
+                pos: usize,
+            ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+                v.visit_table(pos)?
+                    .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u8>>>(
+                        "hash",
+                        Self::VT_HASH,
+                        false,
+                    )?
+                    .finish();
+                Ok(())
+            }
+        }
+        pub struct HashValueArgs<'a> {
+            pub hash: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u8>>>,
+        }
+        impl<'a> Default for HashValueArgs<'a> {
+            #[inline]
+            fn default() -> Self {
+                HashValueArgs { hash: None }
+            }
+        }
+
+        pub struct HashValueBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+            fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+            start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+        }
+        impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> HashValueBuilder<'a, 'b, A> {
+            #[inline]
+            pub fn add_hash(
+                &mut self,
+                hash: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b, u8>>,
+            ) {
+                self.fbb_
+                    .push_slot_always::<::flatbuffers::WIPOffset<_>>(HashValue::VT_HASH, hash);
+            }
+            #[inline]
+            pub fn new(
+                _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+            ) -> HashValueBuilder<'a, 'b, A> {
+                let start = _fbb.start_table();
+                HashValueBuilder {
+                    fbb_: _fbb,
+                    start_: start,
+                }
+            }
+            #[inline]
+            pub fn finish(self) -> ::flatbuffers::WIPOffset<HashValue<'a>> {
+                let o = self.fbb_.end_table(self.start_);
+                ::flatbuffers::WIPOffset::new(o.value())
+            }
+        }
+
+        impl ::core::fmt::Debug for HashValue<'_> {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                let mut ds = f.debug_struct("HashValue");
+                ds.field("hash", &self.hash());
+                ds.finish()
+            }
+        }
         pub enum EntryOffset {}
         #[derive(Copy, Clone, PartialEq)]
 
@@ -555,6 +681,21 @@ pub mod isotime {
                     None
                 }
             }
+
+            #[inline]
+            #[allow(non_snake_case)]
+            pub fn value_as_hash_value(&self) -> Option<HashValue<'a>> {
+                if self.value_type() == ValueType::HashValue {
+                    self.value().map(|t| {
+                        // Safety:
+                        // Created from a valid Table for this object
+                        // Which contains a valid union in this slot
+                        unsafe { HashValue::init_from_table(t) }
+                    })
+                } else {
+                    None
+                }
+            }
         }
 
         impl ::flatbuffers::Verifiable for Entry<'_> {
@@ -584,6 +725,11 @@ pub mod isotime {
                             ValueType::RefValue => v
                                 .verify_union_variant::<::flatbuffers::ForwardsUOffset<RefValue>>(
                                     "ValueType::RefValue",
+                                    pos,
+                                ),
+                            ValueType::HashValue => v
+                                .verify_union_variant::<::flatbuffers::ForwardsUOffset<HashValue>>(
+                                    "ValueType::HashValue",
                                     pos,
                                 ),
                             _ => Ok(()),
@@ -670,6 +816,16 @@ pub mod isotime {
                     }
                     ValueType::RefValue => {
                         if let Some(x) = self.value_as_ref_value() {
+                            ds.field("value", &x)
+                        } else {
+                            ds.field(
+                                "value",
+                                &"InvalidFlatbuffer: Union discriminant does not match value.",
+                            )
+                        }
+                    }
+                    ValueType::HashValue => {
+                        if let Some(x) = self.value_as_hash_value() {
                             ds.field("value", &x)
                         } else {
                             ds.field(

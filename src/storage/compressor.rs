@@ -1,6 +1,17 @@
 #[cfg(feature = "simd")]
 use std::simd::{u64x4, Simd};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CompressionPolicy {
+    /// Minimal compression, maximum read/write speed.
+    Fastest = 0,
+    /// Good mix of speed and space saving.
+    #[default]
+    Balanced = 1,
+    /// Aggressive de-duplication and heavy SIMD compression.
+    ExtremeSpace = 2,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompressionType {
     None = 0,
@@ -10,10 +21,14 @@ pub enum CompressionType {
 pub struct Compressor;
 
 impl Compressor {
-    pub fn compress(data: &[u8]) -> (CompressionType, Vec<u8>) {
+    pub fn compress(data: &[u8], policy: CompressionPolicy) -> (CompressionType, Vec<u8>) {
+        if policy == CompressionPolicy::Fastest {
+            return (CompressionType::None, data.to_vec());
+        }
+
         // Only attempt DeltaDelta if we have enough 64-bit values and SIMD is enabled
         #[cfg(feature = "simd")]
-        if data.len() >= 32 && data.len().is_multiple_of(8) {
+        if data.len() >= 32 && data.len() % 8 == 0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
                 if std::is_x86_feature_detected!("avx2") {
@@ -149,7 +164,7 @@ mod tests {
                 step += 1;
             }
 
-            let (ctype, compressed) = Compressor::compress(&original);
+            let (ctype, compressed) = Compressor::compress(&original, CompressionPolicy::Balanced);
             assert!(matches!(ctype, CompressionType::DeltaDelta));
 
             let decompressed = Compressor::decompress(ctype, &compressed);
@@ -160,11 +175,23 @@ mod tests {
     #[test]
     fn test_none_compression() {
         let data = b"small data".to_vec();
-        let (ctype, compressed) = Compressor::compress(&data);
+        let (ctype, compressed) = Compressor::compress(&data, CompressionPolicy::Balanced);
         assert!(matches!(ctype, CompressionType::None));
         assert_eq!(data, compressed);
 
         let decompressed = Compressor::decompress(ctype, &compressed);
         assert_eq!(data, decompressed);
+    }
+
+    #[test]
+    fn test_fastest_policy() {
+        let mut original = Vec::new();
+        for i in 0..100u64 {
+            original.extend_from_slice(&i.to_le_bytes());
+        }
+
+        let (ctype, compressed) = Compressor::compress(&original, CompressionPolicy::Fastest);
+        assert!(matches!(ctype, CompressionType::None));
+        assert_eq!(original, compressed);
     }
 }
