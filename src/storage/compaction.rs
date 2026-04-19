@@ -205,14 +205,7 @@ mod tests {
         ];
 
         // Compact all
-        Compactor::compact(
-            &metas,
-            &final_path,
-            None,
-            CompressionPolicy::Balanced,
-            None,
-        )
-        .unwrap();
+        Compactor::compact(&metas, &final_path, None, CompressionPolicy::Balanced, None).unwrap();
 
         // Verify
         let result = SSTable::open(&final_path, None).unwrap();

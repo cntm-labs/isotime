@@ -46,12 +46,10 @@ impl Compressor {
 
             #[cfg(feature = "simd")]
             #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-            {
-                return (
-                    CompressionType::DeltaDelta,
-                    Self::compress_delta_delta_simd(data),
-                );
-            }
+            return (
+                CompressionType::DeltaDelta,
+                Self::compress_delta_delta_simd(data),
+            );
         }
 
         (CompressionType::None, data.to_vec())
@@ -309,7 +307,11 @@ mod tests {
         // Extreme (bit-packed) should be smaller than Balanced (full 64-bit deltas)
         // Balanced (DeltaDelta) uses 8 bytes for 2 headers + 8 bytes * 98 deltas = 800 bytes
         // Extreme (BitPacked) uses 1 byte (bits) + 16 bytes (headers) + 1 byte * 98 deltas = 115 bytes
-        println!("Balanced size: {}, Extreme size: {}", balanced.len(), extreme.len());
+        println!(
+            "Balanced size: {}, Extreme size: {}",
+            balanced.len(),
+            extreme.len()
+        );
         assert!(extreme.len() < balanced.len());
     }
 
