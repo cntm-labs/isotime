@@ -1,6 +1,6 @@
 namespace isotime.storage;
 
-enum CompressionType : byte { None = 0, DeltaDelta = 1 }
+enum CompressionType : byte { None = 0, DeltaDelta = 1, BitPackedDelta = 2 }
 
 table RawValue {
   data: [ubyte];
@@ -11,7 +11,11 @@ table RefValue {
   offset: uint32;
 }
 
-union ValueType { RawValue, RefValue }
+table HashValue {
+  hash: [ubyte];
+}
+
+union ValueType { RawValue, RefValue, HashValue }
 
 table Entry {
   key: [ubyte];
