@@ -166,7 +166,12 @@ async fn main() -> io::Result<()> {
 
     // Demonstrate decryption failure with wrong key
     let wrong_key = Some([1u8; 32]);
-    let engine_wrong = StorageEngine::new("wrong.wal", wrong_key, CompressionPolicy::Balanced, "cas_wrong")?;
+    let engine_wrong = StorageEngine::new(
+        "wrong.wal",
+        wrong_key,
+        CompressionPolicy::Balanced,
+        "cas_wrong",
+    )?;
     assert!(SSTable::open(Path::new("final.db"), engine_wrong.encryption.as_deref()).is_err());
     println!("Encryption verified: Failed to open with incorrect key.");
 

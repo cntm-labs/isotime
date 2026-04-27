@@ -17,7 +17,10 @@ pub struct Wal {
 }
 
 impl Wal {
-    pub fn new<P: AsRef<Path>>(path: P, encryption_manager: Option<Arc<EncryptionManager>>) -> io::Result<Self> {
+    pub fn new<P: AsRef<Path>>(
+        path: P,
+        encryption_manager: Option<Arc<EncryptionManager>>,
+    ) -> io::Result<Self> {
         let file = OpenOptions::new().create(true).append(true).open(&path)?;
         Ok(Self {
             path: path.as_ref().to_path_buf(),
@@ -53,7 +56,8 @@ impl Wal {
             entry.to_vec()
         };
 
-        self.writer.write_all(&(final_payload.len() as u32).to_le_bytes())?;
+        self.writer
+            .write_all(&(final_payload.len() as u32).to_le_bytes())?;
         self.writer.write_all(&final_payload)?;
         self.writer.flush()?;
         Ok(())
