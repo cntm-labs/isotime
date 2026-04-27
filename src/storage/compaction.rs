@@ -102,7 +102,7 @@ mod tests {
         let metas = vec![
             mock_meta(PathBuf::from("f1"), StorageTier::L0, 1000, 1500),
             mock_meta(PathBuf::from("f2"), StorageTier::L0, 1200, 1600),
-            mock_meta(PathBuf::from("f3"), StorageTier::L0, 5000, 5500), // Different hour (1000/3600=0, 5000/3600=1)
+            mock_meta(PathBuf::from("f3"), StorageTier::L0, 5000, 5500), // Different hour
             mock_meta(PathBuf::from("f4"), StorageTier::L0, 5100, 5600),
             mock_meta(PathBuf::from("f5"), StorageTier::L1, 1000, 2000), // Wrong tier
         ];
@@ -252,7 +252,7 @@ mod tests {
 
             let metas = vec![mock_meta(sst1_path.clone(), StorageTier::L0, 1000, 2000)];
 
-            // Compact (even single SSTable to test the path)
+            // Compact
             Compactor::compact(
                 &metas,
                 &merged_path,

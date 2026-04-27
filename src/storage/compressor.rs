@@ -39,20 +39,23 @@ impl Compressor {
 
         // SIMD-accelerated DeltaDelta compression
         #[cfg(feature = "simd")]
-        if enough_data && std::is_x86_feature_detected!("avx2") {
-            return (
-                CompressionType::DeltaDelta,
-                Self::compress_delta_delta_simd(data),
-            );
-        }
-
-        #[cfg(feature = "simd")]
-        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
         if enough_data {
-            return (
-                CompressionType::DeltaDelta,
-                Self::compress_delta_delta_simd(data),
-            );
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            {
+                if std::is_x86_feature_detected!("avx2") {
+                    return (
+                        CompressionType::DeltaDelta,
+                        Self::compress_delta_delta_simd(data),
+                    );
+                }
+            }
+            #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+            {
+                return (
+                    CompressionType::DeltaDelta,
+                    Self::compress_delta_delta_simd(data),
+                );
+            }
         }
 
         (CompressionType::None, data.to_vec())
@@ -307,9 +310,6 @@ mod tests {
         let (_, balanced) = Compressor::compress(&original, CompressionPolicy::Balanced);
         let (_, extreme) = Compressor::compress(&original, CompressionPolicy::ExtremeSpace);
 
-        // Extreme (bit-packed) should be smaller than Balanced (full 64-bit deltas)
-        // Balanced (DeltaDelta) uses 8 bytes for 2 headers + 8 bytes * 98 deltas = 800 bytes
-        // Extreme (BitPacked) uses 1 byte (bits) + 16 bytes (headers) + 1 byte * 98 deltas = 115 bytes
         println!(
             "Balanced size: {}, Extreme size: {}",
             balanced.len(),

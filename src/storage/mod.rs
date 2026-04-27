@@ -42,7 +42,8 @@ impl StorageEngine {
         policy: CompressionPolicy,
         cas_root: P2,
     ) -> io::Result<Self> {
-        let wal = Wal::new(wal_path)?;
+        let encryption = key.map(|k| Arc::new(EncryptionManager::new(&k)));
+        let wal = Wal::new(wal_path, encryption.clone())?;
         let entries = wal.recover()?;
         let memtable = MemTable::new();
         for entry in entries {
@@ -52,7 +53,6 @@ impl StorageEngine {
             }
         }
 
-        let encryption = key.map(|k| Arc::new(EncryptionManager::new(&k)));
         let cas = Arc::new(CASManager::new(cas_root)?);
         let metadatas = Arc::new(Mutex::new(Vec::new()));
 

@@ -7,9 +7,9 @@ This file tracks the specific context for the LSM-Tree storage implementation in
 - Stack: Rust (Tokio/io_uring), Custom LSM-Tree, FlatBuffers, SIMD.
 
 ## 🚀 Session Context & Technical Debt
-- **Status:** Successfully implemented LSM-Tree Storage, SHM Delta Streamer (Bus), and SIMD Delta Compressor with Value Sharing.
+- **Status:** Successfully implemented LSM-Tree Storage, SHM Bus, and SIMD Delta Compressor. **Encrypted SSTables/WAL and Intent-Based Compression Policies (Fastest, Balanced, ExtremeSpace) are now fully operational.**
 - **Technical Debt:** Cleaned up `#[allow(dead_code)]` and `unused_imports`. Resolved SIMD nightly feature compatibility in CI.
-- **Session Handover:** Priority for next session: Implement **Encrypted SSTables** on disk (AES-GCM-SIV) and formalize the **Intent-Based Compression Policy**.
+- **Session Handover:** Priority for next session: Implement **Cross-SSTable De-duplication** (Global CAS) to further reduce storage footprint during major compactions.
 
 ## 🛠️ Local Standards
 - Follow root standards for security, git hygiene, and quality (no lint bypasses).

@@ -159,9 +159,30 @@ async fn main() -> io::Result<()> {
         final_sst.all_entries(Some(&engine.cas))?.len()
     );
 
+    // Verify encryption on disk
+    let raw_data = fs::read("final.db")?;
+    println!("Size of final.db: {} bytes", raw_data.len());
+    println!("First 12 bytes (Nonce): {:?}", &raw_data[0..12]);
+
+    // Demonstrate decryption failure with wrong key
+    let wrong_key = Some([1u8; 32]);
+    let engine_wrong = StorageEngine::new(
+        "wrong.wal",
+        wrong_key,
+        CompressionPolicy::Balanced,
+        "cas_wrong",
+    )?;
+    assert!(SSTable::open(Path::new("final.db"), engine_wrong.encryption.as_deref()).is_err());
+    println!("Encryption verified: Failed to open with incorrect key.");
+
+    // Demo Delete
+    engine.delete(b"key-00")?;
+    assert!(engine.get(b"key-00")?.is_none());
+
     // Cleanup
     let _ = fs::remove_file("isotime.wal");
     let _ = fs::remove_file("extreme.wal");
+    let _ = fs::remove_file("wrong.wal");
     let _ = fs::remove_file(shared_sst);
     let _ = fs::remove_file(compressed_sst);
     let _ = fs::remove_file("cas_1.db");
@@ -169,6 +190,7 @@ async fn main() -> io::Result<()> {
     let _ = fs::remove_file("final.db");
     let _ = fs::remove_file("bus.bin");
     let _ = fs::remove_dir_all(cas_root);
+    let _ = fs::remove_dir_all("cas_wrong");
 
     println!("\nisotime: Engine shut down gracefully.");
     Ok(())
