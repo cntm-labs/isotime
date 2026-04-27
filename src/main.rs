@@ -1,5 +1,6 @@
 use isotime::storage::bus::{BusManager, DeltaEvent};
 use isotime::storage::compaction::Compactor;
+use isotime::storage::compressor::CompressionPolicy;
 use isotime::storage::sstable::SSTable;
 use isotime::storage::StorageEngine;
 use std::fs;
@@ -15,7 +16,7 @@ async fn main() -> io::Result<()> {
     let encryption_key = Some([0u8; 32]);
 
     // Initialize storage engine with WAL path and optional encryption
-    let engine = StorageEngine::new("isotime.wal", encryption_key)?;
+    let engine = StorageEngine::new("isotime.wal", encryption_key, CompressionPolicy::Balanced)?;
 
     // --- Demo 1: Value Sharing (De-duplication) ---
     println!("\n--- Demo 1: Value Sharing (De-duplication) ---");
@@ -91,6 +92,7 @@ async fn main() -> io::Result<()> {
         &[Path::new(shared_sst), Path::new(compressed_sst)],
         Path::new("final.db"),
         enc_manager,
+        CompressionPolicy::ExtremeSpace,
     )?;
 
     let final_sst = SSTable::open(Path::new("final.db"), enc_manager)?;
@@ -106,7 +108,7 @@ async fn main() -> io::Result<()> {
 
     // Demonstrate decryption failure with wrong key
     let wrong_key = Some([1u8; 32]);
-    let engine_wrong = StorageEngine::new("wrong.wal", wrong_key)?;
+    let engine_wrong = StorageEngine::new("wrong.wal", wrong_key, CompressionPolicy::Balanced)?;
     assert!(SSTable::open(Path::new("final.db"), engine_wrong.encryption.as_deref()).is_err());
     println!("Encryption verified: Failed to open with incorrect key.");
 

@@ -7,33 +7,45 @@ pub enum CompressionType {
     DeltaDelta = 1,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompressionPolicy {
+    Fastest,
+    Balanced,
+    ExtremeSpace,
+}
+
 pub struct Compressor;
 
 impl Compressor {
-    pub fn compress(data: &[u8]) -> (CompressionType, Vec<u8>) {
-        // Only attempt DeltaDelta if we have enough 64-bit values and SIMD is enabled
-        #[cfg(feature = "simd")]
-        if data.len() >= 32 && data.len().is_multiple_of(8) {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            {
-                if std::is_x86_feature_detected!("avx2") {
-                    return (
-                        CompressionType::DeltaDelta,
-                        Self::compress_delta_delta_simd(data),
-                    );
+    pub fn compress(data: &[u8], policy: CompressionPolicy) -> (CompressionType, Vec<u8>) {
+        match policy {
+            CompressionPolicy::Fastest => (CompressionType::None, data.to_vec()),
+            CompressionPolicy::Balanced | CompressionPolicy::ExtremeSpace => {
+                // Only attempt DeltaDelta if we have enough 64-bit values and SIMD is enabled
+                #[cfg(feature = "simd")]
+                if data.len() >= 32 && data.len().is_multiple_of(8) {
+                    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                    {
+                        if std::is_x86_feature_detected!("avx2") {
+                            return (
+                                CompressionType::DeltaDelta,
+                                Self::compress_delta_delta_simd(data),
+                            );
+                        }
+                    }
+                    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+                    {
+                        // On non-x86, we still use portable SIMD if the feature is enabled
+                        return (
+                            CompressionType::DeltaDelta,
+                            Self::compress_delta_delta_simd(data),
+                        );
+                    }
                 }
-            }
-            #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-            {
-                // On non-x86, we still use portable SIMD if the feature is enabled
-                return (
-                    CompressionType::DeltaDelta,
-                    Self::compress_delta_delta_simd(data),
-                );
+
+                (CompressionType::None, data.to_vec())
             }
         }
-
-        (CompressionType::None, data.to_vec())
     }
 
     pub fn decompress(comp_type: CompressionType, data: &[u8]) -> Vec<u8> {
@@ -149,7 +161,7 @@ mod tests {
                 step += 1;
             }
 
-            let (ctype, compressed) = Compressor::compress(&original);
+            let (ctype, compressed) = Compressor::compress(&original, CompressionPolicy::Balanced);
             assert!(matches!(ctype, CompressionType::DeltaDelta));
 
             let decompressed = Compressor::decompress(ctype, &compressed);
@@ -160,11 +172,27 @@ mod tests {
     #[test]
     fn test_none_compression() {
         let data = b"small data".to_vec();
-        let (ctype, compressed) = Compressor::compress(&data);
+        let (ctype, compressed) = Compressor::compress(&data, CompressionPolicy::Balanced);
         assert!(matches!(ctype, CompressionType::None));
         assert_eq!(data, compressed);
 
         let decompressed = Compressor::decompress(ctype, &compressed);
         assert_eq!(data, decompressed);
+    }
+
+    #[test]
+    fn test_fastest_policy_skips_compression() {
+        #[cfg(feature = "simd")]
+        {
+            let mut original = Vec::new();
+            let mut curr = 1000u64;
+            for _ in 0..100 {
+                original.extend_from_slice(&curr.to_le_bytes());
+                curr += 10;
+            }
+
+            let (ctype, _) = Compressor::compress(&original, CompressionPolicy::Fastest);
+            assert!(matches!(ctype, CompressionType::None));
+        }
     }
 }
