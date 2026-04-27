@@ -1,2 +1,12 @@
 /target
 .worktrees/
+.superpowers/
+.playwright-mcp/
+*.sst
+*.wal
+*.db
+bus.bin
+cas_store/
+test_*.sst
+test_*.wal
+test_*.db
