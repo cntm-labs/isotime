@@ -27,4 +27,10 @@ jobs:
           curl -sSLo /tmp/sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip
           sudo unzip -o /tmp/sonar-scanner.zip -d /opt
           sudo ln -sf /opt/sonar-scanner-5.0.1.3006-linux/bin/sonar-scanner /usr/local/bin/sonar-scanner
-          sonar-scanner -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+          sonar-scanner \
+            -Dsonar.projectKey=cntm-labs_isotime \
+            -Dsonar.projectName=isotime \
+            -Dsonar.sources=. \
+            -Dsonar.host.url=http://sonarqube.devops.svc.cluster.local:9000 \
+            -Dsonar.exclusions="**/*.java, **/node_modules/**, **/dist/**, **/build/**, **/.git/**" \
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
