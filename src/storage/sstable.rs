@@ -516,7 +516,7 @@ mod tests {
         let path1 = PathBuf::from("test_cas_1.db");
         let path2 = PathBuf::from("test_cas_2.db");
         let cas_dir = tempdir().unwrap();
-        let cas = CASManager::new(cas_dir.path()).unwrap();
+        let cas = CASManager::new(cas_dir.path(), None).unwrap();
 
         let mut data = BTreeMap::new();
         let val = b"shared-global-value".to_vec();
