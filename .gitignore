@@ -1,7 +1,25 @@
+# Build & Output
 /target
 .worktrees/
+dist/
+build/
+
+# IDEs & System
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Internal Tools & Superpowers
 .superpowers/
 .playwright-mcp/
+docs/superpowers/
+STRUCTURE.tree
+sonar-project.properties
+
+# Database & Data Files
 *.sst
 *.wal
 *.db
@@ -10,3 +28,12 @@ cas_store/
 test_*.sst
 test_*.wal
 test_*.db
+*.bin
+*.log
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
