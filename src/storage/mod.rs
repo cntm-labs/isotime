@@ -49,11 +49,11 @@ impl StorageEngine {
         for entry in entries {
             match entry {
                 WalOp::Put(key, value) => memtable.insert(key, value),
-                WalOp::Delete(key) => memtable.delete(&key),
+                WalOp::Delete(key) => memtable.insert(key, vec![]), // Recover as Tombstone
             }
         }
 
-        let cas = Arc::new(CASManager::new(cas_root)?);
+        let cas = Arc::new(CASManager::new(cas_root, encryption.clone())?);
         let metadatas = Arc::new(Mutex::new(Vec::new()));
 
         Ok(Self {
@@ -164,7 +164,41 @@ impl StorageEngine {
     }
 
     pub fn get(&self, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        Ok(self.memtable.get(key))
+        // 1. Check MemTable
+        if let Some(val) = self.memtable.get(key) {
+            if val.is_empty() {
+                return Ok(None); // Tombstone found in MemTable
+            }
+            return Ok(Some(val));
+        }
+
+        // 2. Check SSTables (L0 -> L3, newest to oldest)
+        let metas = {
+            let guard = self
+                .metadatas
+                .lock()
+                .map_err(|_| io::Error::other("Lock poisoned"))?;
+            let mut m = guard.clone();
+            // Sort by tier (L0 < L1 < L2 < L3) then by window_start descending
+            m.sort_by(|a, b| {
+                a.tier
+                    .cmp(&b.tier)
+                    .then_with(|| b.window_start.cmp(&a.window_start))
+            });
+            m
+        };
+
+        for meta in metas {
+            let sstable = SSTable::open(&meta.path, self.encryption.as_deref())?;
+            if let Some(val) = sstable.get(key, Some(&self.cas))? {
+                if val.is_empty() {
+                    return Ok(None); // Tombstone found in SSTable
+                }
+                return Ok(Some(val));
+            }
+        }
+
+        Ok(None)
     }
 
     pub fn delete(&self, key: &[u8]) -> io::Result<()> {
@@ -173,7 +207,7 @@ impl StorageEngine {
             .lock()
             .map_err(|_| io::Error::other("WAL lock poisoned"))?;
         wal.delete(key)?;
-        self.memtable.delete(key);
+        self.memtable.insert(key.to_vec(), vec![]); // Insert empty vec as Tombstone
         Ok(())
     }
 
@@ -496,5 +530,74 @@ mod tests {
         fs::remove_file(sst_path).unwrap();
         let _ = fs::remove_file("another.wal");
         let _ = fs::remove_file("yet_another.wal");
+    }
+
+    #[test]
+    fn test_storage_engine_tombstone_flush() {
+        let wal_path = "test_tombstone.wal";
+        let sst_path = "test_tombstone.sst";
+        let cas_dir = tempdir().unwrap();
+        if Path::new(wal_path).exists() {
+            fs::remove_file(wal_path).unwrap();
+        }
+        if Path::new(sst_path).exists() {
+            fs::remove_file(sst_path).unwrap();
+        }
+
+        let engine =
+            StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                .unwrap();
+
+        // Put and flush
+        engine.put(b"k1".to_vec(), b"v1".to_vec()).unwrap();
+        engine.flush(sst_path).unwrap();
+
+        // Delete (creates tombstone in memtable)
+        engine.delete(b"k1").unwrap();
+
+        // Should be None (tombstone masks the SSTable)
+        assert_eq!(engine.get(b"k1").unwrap(), None);
+
+        // Flush tombstone to new SSTable
+        let sst2_path = "test_tombstone_2.sst";
+        if Path::new(sst2_path).exists() {
+            fs::remove_file(sst2_path).unwrap();
+        }
+        engine.flush(sst2_path).unwrap();
+
+        // Restart engine (to clear memtable)
+        let engine2 = StorageEngine::new(
+            "test_tombstone_new.wal",
+            None,
+            CompressionPolicy::Balanced,
+            cas_dir.path(),
+        )
+        .unwrap();
+
+        // Manually load the metadatas for test
+        let meta1 = SSTableMetadata {
+            path: PathBuf::from(sst_path),
+            tier: StorageTier::L0,
+            window_start: 1,
+            window_end: 1,
+            size_bytes: 100,
+        };
+        let meta2 = SSTableMetadata {
+            path: PathBuf::from(sst2_path),
+            tier: StorageTier::L0,
+            window_start: 2,
+            window_end: 2,
+            size_bytes: 100,
+        };
+        engine2.metadatas.lock().unwrap().push(meta1);
+        engine2.metadatas.lock().unwrap().push(meta2);
+
+        // Should be None because the newer SSTable has the tombstone
+        assert_eq!(engine2.get(b"k1").unwrap(), None);
+
+        fs::remove_file(wal_path).unwrap();
+        fs::remove_file(sst_path).unwrap();
+        fs::remove_file(sst2_path).unwrap();
+        let _ = fs::remove_file("test_tombstone_new.wal");
     }
 }

@@ -277,7 +277,7 @@ mod tests {
         let sst1_path = PathBuf::from("test_cas_comp_1.db");
         let merged_path = PathBuf::from("test_cas_comp_merged.db");
         let cas_dir = tempdir().unwrap();
-        let cas = CASManager::new(cas_dir.path()).unwrap();
+        let cas = CASManager::new(cas_dir.path(), None).unwrap();
 
         // Cleanup
         let _ = fs::remove_file(&sst1_path);
