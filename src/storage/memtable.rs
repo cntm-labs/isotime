@@ -31,6 +31,15 @@ impl MemTable {
         }
         snapshot
     }
+
+    pub fn get_range(&self, start_key: &[u8], end_key: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
+        let mut results = Vec::new();
+        // Crossbeam SkipMap range is inclusive on start, exclusive on end by default
+        for entry in self.map.range(start_key.to_vec()..end_key.to_vec()) {
+            results.push((entry.key().clone(), entry.value().clone()));
+        }
+        results
+    }
 }
 
 impl Default for MemTable {
@@ -106,5 +115,19 @@ mod tests {
                 assert!(memtable.get(&key).is_some());
             }
         }
+    }
+
+    #[test]
+    fn test_memtable_get_range() {
+        let memtable = MemTable::new();
+        memtable.insert(b"k1".to_vec(), b"v1".to_vec());
+        memtable.insert(b"k2".to_vec(), b"v2".to_vec());
+        memtable.insert(b"k3".to_vec(), b"v3".to_vec());
+        memtable.insert(b"k4".to_vec(), b"v4".to_vec());
+
+        let results = memtable.get_range(b"k2", b"k4");
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].0, b"k2");
+        assert_eq!(results[1].0, b"k3");
     }
 }

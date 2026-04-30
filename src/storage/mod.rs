@@ -193,6 +193,51 @@ impl StorageEngine {
         Ok(None)
     }
 
+    pub async fn get_range(
+        &self,
+        start_key: &[u8],
+        end_key: &[u8],
+    ) -> io::Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let mut merged = std::collections::BTreeMap::new();
+
+        // 1. Get from SSTables (Oldest L3 to Newest L0)
+        let metas = {
+            let guard = self.metadatas.lock().await;
+            let mut m = guard.clone();
+            // Sort by tier descending (L3 -> L0), then window_start ascending (oldest -> newest)
+            m.sort_by(|a, b| {
+                b.tier
+                    .cmp(&a.tier)
+                    .then_with(|| a.window_start.cmp(&b.window_start))
+            });
+            m
+        };
+
+        for meta in metas {
+            let sstable = SSTable::open(&meta.path, self.encryption.as_deref()).await?;
+            let entries = sstable
+                .get_range(start_key, end_key, Some(&self.cas))
+                .await?;
+            for (k, v) in entries {
+                merged.insert(k, v);
+            }
+        }
+
+        // 2. Get from MemTable (Newest)
+        let mem_entries = self.memtable.get_range(start_key, end_key);
+        for (k, v) in mem_entries {
+            merged.insert(k, v);
+        }
+
+        // 3. Filter out tombstones (empty values)
+        let final_results: Vec<_> = merged
+            .into_iter()
+            .filter(|(_, v)| !v.is_empty())
+            .collect();
+
+        Ok(final_results)
+    }
+
     pub async fn delete(&self, key: &[u8]) -> io::Result<()> {
         self.wal.delete(key).await?;
         self.memtable.insert(key.to_vec(), vec![]); // Insert empty vec as Tombstone
@@ -649,6 +694,50 @@ mod tests {
             let _ = fs::remove_file(sst_path);
             let _ = fs::remove_file(sst2_path);
             let _ = fs::remove_file("test_tombstone_new.wal");
+        });
+    }
+
+    #[test]
+    fn test_storage_engine_get_range_with_tombstones() {
+        tokio_uring::start(async {
+            let wal_path = "test_engine_range.wal";
+            let cas_dir = tempdir().unwrap();
+            if Path::new(wal_path).exists() {
+                let _ = fs::remove_file(wal_path);
+            }
+
+            let engine = StorageEngine::new(
+                wal_path,
+                None,
+                CompressionPolicy::Balanced,
+                cas_dir.path(),
+            )
+            .await
+            .unwrap();
+
+            engine.put(b"k1".to_vec(), b"v1".to_vec()).await.unwrap();
+            engine.put(b"k2".to_vec(), b"v2".to_vec()).await.unwrap();
+            engine.put(b"k3".to_vec(), b"v3".to_vec()).await.unwrap();
+
+            // Flush to SSTable
+            engine.flush("test_engine_range_1.sst").await.unwrap();
+
+            // Override k2, Delete k3
+            engine
+                .put(b"k2".to_vec(), b"v2_new".to_vec())
+                .await
+                .unwrap();
+            engine.delete(b"k3").await.unwrap();
+
+            let results = engine.get_range(b"k1", b"k4").await.unwrap();
+
+            assert_eq!(results.len(), 2);
+            assert_eq!(results[0], (b"k1".to_vec(), b"v1".to_vec()));
+            assert_eq!(results[1], (b"k2".to_vec(), b"v2_new".to_vec())); // Updated
+                                                                         // k3 is deleted, so it's missing
+
+            let _ = fs::remove_file(wal_path);
+            let _ = fs::remove_file("test_engine_range_1.sst");
         });
     }
 }

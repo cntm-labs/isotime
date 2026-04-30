@@ -276,6 +276,51 @@ impl SSTable {
         Ok(None)
     }
 
+    pub async fn get_range(
+        &self,
+        start_key: &[u8],
+        end_key: &[u8],
+        cas: Option<&CASManager>,
+    ) -> io::Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let sstable_data = fbs::root_as_sstable_data(&self.buffer).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Invalid FlatBuffers data: {:?}", e),
+            )
+        })?;
+
+        let mut result = Vec::new();
+        if let Some(entries) = sstable_data.entries() {
+            let mut low = 0;
+            let mut high = entries.len();
+
+            // Find first element >= start_key
+            while low < high {
+                let mid = low + (high - low) / 2;
+                let entry = entries.get(mid);
+                let entry_key = entry.key().unwrap().bytes();
+                if entry_key < start_key {
+                    low = mid + 1;
+                } else {
+                    high = mid;
+                }
+            }
+
+            // Iterate until key >= end_key
+            for i in low..entries.len() {
+                let entry = entries.get(i);
+                let key = entry.key().unwrap().bytes();
+                if key >= end_key {
+                    break;
+                }
+
+                let val_bytes = self.resolve_value(entry, entries, cas).await?;
+                result.push((key.to_vec(), val_bytes));
+            }
+        }
+        Ok(result)
+    }
+
     pub async fn all_entries(&self, cas: Option<&CASManager>) -> io::Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let sstable_data = fbs::root_as_sstable_data(&self.buffer).map_err(|e| {
             io::Error::new(
@@ -405,6 +450,33 @@ mod tests {
             sstable.get(b"secret_key", None).await.unwrap(),
             Some(b"secret_value".to_vec())
         );
+
+        let _ = std_fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn test_sstable_get_range() {
+        let path = PathBuf::from("test_sstable_range.db");
+        if path.exists() {
+            let _ = std_fs::remove_file(&path);
+        }
+
+        let mut data = BTreeMap::new();
+        data.insert(b"k1".to_vec(), b"v1".to_vec());
+        data.insert(b"k2".to_vec(), b"v2".to_vec());
+        data.insert(b"k3".to_vec(), b"v3".to_vec());
+        data.insert(b"k4".to_vec(), b"v4".to_vec());
+
+        SSTable::write(&path, data, None, CompressionPolicy::Balanced, None)
+            .await
+            .expect("Failed to write SSTable");
+
+        let sstable = SSTable::open(&path, None).await.unwrap();
+        let results = sstable.get_range(b"k2", b"k4", None).await.unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].0, b"k2");
+        assert_eq!(results[1].0, b"k3");
 
         let _ = std_fs::remove_file(&path);
     }
