@@ -36,13 +36,17 @@ impl Compressor {
                 Self::compress_bitpacked(data),
             );
         }
-
         // SIMD-accelerated DeltaDelta compression
         #[cfg(feature = "simd")]
         if enough_data {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
-                if std::is_x86_feature_detected!("avx2") {
+                if std::is_x86_feature_detected!("avx512f") {
+                    return (
+                        CompressionType::DeltaDelta,
+                        Self::compress_delta_delta_avx512(data),
+                    );
+                } else if std::is_x86_feature_detected!("avx2") {
                     return (
                         CompressionType::DeltaDelta,
                         Self::compress_delta_delta_simd(data),
@@ -82,6 +86,49 @@ impl Compressor {
             }
             CompressionType::BitPackedDelta => Self::decompress_bitpacked(data),
         }
+    }
+
+    #[cfg(feature = "simd")]
+    fn compress_delta_delta_avx512(data: &[u8]) -> Vec<u8> {
+        use std::simd::{u64x8, Simd};
+
+        let mut values = Vec::with_capacity(data.len() / 8);
+        for chunk in data.chunks_exact(8) {
+            values.push(u64::from_le_bytes(chunk.try_into().unwrap()));
+        }
+
+        if values.len() < 3 {
+            return data.to_vec();
+        }
+
+        let mut result = Vec::with_capacity(data.len());
+        result.extend_from_slice(&values[0].to_le_bytes());
+        result.extend_from_slice(&values[1].to_le_bytes());
+
+        let mut i = 2;
+        while i + 7 < values.len() {
+            let curr = u64x8::from_slice(&values[i..i + 8]);
+            let prev = u64x8::from_slice(&values[i - 1..i + 7]);
+            let prev2 = u64x8::from_slice(&values[i - 2..i + 6]);
+
+            let shift = Simd::from_array([1; 8]);
+            let dd = curr - (prev << shift) + prev2;
+
+            for &val in dd.as_array() {
+                result.extend_from_slice(&val.to_le_bytes());
+            }
+            i += 8;
+        }
+
+        while i < values.len() {
+            let dd = values[i]
+                .wrapping_sub(values[i - 1].wrapping_shl(1))
+                .wrapping_add(values[i - 2]);
+            result.extend_from_slice(&dd.to_le_bytes());
+            i += 1;
+        }
+
+        result
     }
 
     #[cfg(feature = "simd")]
