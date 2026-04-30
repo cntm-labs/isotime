@@ -3,6 +3,11 @@ name = "isotime"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "isotime"
+path = "src/lib.rs"
+crate-type = ["lib", "cdylib"]
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 flatbuffers = "25.12.19"
