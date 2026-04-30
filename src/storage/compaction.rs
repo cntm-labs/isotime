@@ -11,7 +11,7 @@ pub struct Compactor;
 
 impl Compactor {
     /// Merges multiple SSTables into a single target SSTable based on metadata.
-    pub fn compact(
+    pub async fn compact(
         src_metas: &[SSTableMetadata],
         dest_path: &Path,
         enc: Option<&EncryptionManager>,
@@ -23,8 +23,8 @@ impl Compactor {
         let mut max_ts = 0;
 
         for meta in src_metas {
-            let sstable = SSTable::open(&meta.path, enc)?;
-            let entries = sstable.all_entries(cas)?;
+            let sstable = SSTable::open(&meta.path, enc).await?;
+            let entries = sstable.all_entries(cas).await?;
             for (key, value) in entries {
                 merged_data.insert(key, value);
             }
@@ -32,7 +32,7 @@ impl Compactor {
             max_ts = max_ts.max(meta.window_end);
         }
 
-        SSTable::write(dest_path, merged_data, enc, policy, cas)?;
+        SSTable::write(dest_path, merged_data, enc, policy, cas).await?;
 
         let size_bytes = std::fs::metadata(dest_path)?.len();
         let current_tier = src_metas[0].tier;
@@ -115,140 +115,193 @@ mod tests {
 
     #[test]
     fn test_compaction_basic() {
-        let sst1_path = PathBuf::from("test_compaction_1.db");
-        let sst2_path = PathBuf::from("test_compaction_2.db");
-        let merged_path = PathBuf::from("test_compaction_merged.db");
+        tokio_uring::start(async {
+            let sst1_path = PathBuf::from("test_compaction_1.db");
+            let sst2_path = PathBuf::from("test_compaction_2.db");
+            let merged_path = PathBuf::from("test_compaction_merged.db");
 
-        // Cleanup
-        let _ = fs::remove_file(&sst1_path);
-        let _ = fs::remove_file(&sst2_path);
-        let _ = fs::remove_file(&merged_path);
+            // Cleanup
+            let _ = fs::remove_file(&sst1_path);
+            let _ = fs::remove_file(&sst2_path);
+            let _ = fs::remove_file(&merged_path);
 
-        // SSTable 1: key1=v1, key2=v2
-        let mut data1 = BTreeMap::new();
-        data1.insert(b"key1".to_vec(), b"v1".to_vec());
-        data1.insert(b"key2".to_vec(), b"v2".to_vec());
-        SSTable::write(&sst1_path, data1, None, CompressionPolicy::Balanced, None).unwrap();
+            // SSTable 1: key1=v1, key2=v2
+            let mut data1 = BTreeMap::new();
+            data1.insert(b"key1".to_vec(), b"v1".to_vec());
+            data1.insert(b"key2".to_vec(), b"v2".to_vec());
+            SSTable::write(&sst1_path, data1, None, CompressionPolicy::Balanced, None).await.unwrap();
 
-        // SSTable 2: key1=v1_new, key3=v3
-        let mut data2 = BTreeMap::new();
-        data2.insert(b"key1".to_vec(), b"v1_new".to_vec());
-        data2.insert(b"key3".to_vec(), b"v3".to_vec());
-        SSTable::write(&sst2_path, data2, None, CompressionPolicy::Balanced, None).unwrap();
+            // SSTable 2: key1=v1_new, key3=v3
+            let mut data2 = BTreeMap::new();
+            data2.insert(b"key1".to_vec(), b"v1_new".to_vec());
+            data2.insert(b"key3".to_vec(), b"v3".to_vec());
+            SSTable::write(&sst2_path, data2, None, CompressionPolicy::Balanced, None).await.unwrap();
 
-        let metas = vec![
-            mock_meta(sst1_path.clone(), StorageTier::L0, 100, 200),
-            mock_meta(sst2_path.clone(), StorageTier::L0, 150, 250),
-        ];
+            let metas = vec![
+                mock_meta(sst1_path.clone(), StorageTier::L0, 100, 200),
+                mock_meta(sst2_path.clone(), StorageTier::L0, 150, 250),
+            ];
 
-        // Compact
-        let result_meta = Compactor::compact(
-            &metas,
-            &merged_path,
-            None,
-            CompressionPolicy::Balanced,
-            None,
-        )
-        .unwrap();
+            // Compact
+            let result_meta = Compactor::compact(
+                &metas,
+                &merged_path,
+                None,
+                CompressionPolicy::Balanced,
+                None,
+            ).await
+            .unwrap();
 
-        assert_eq!(result_meta.tier, StorageTier::L1);
-        assert_eq!(result_meta.window_start, 100);
-        assert_eq!(result_meta.window_end, 250);
+            assert_eq!(result_meta.tier, StorageTier::L1);
+            assert_eq!(result_meta.window_start, 100);
+            assert_eq!(result_meta.window_end, 250);
 
-        // Verify
-        let merged = SSTable::open(&merged_path, None).unwrap();
-        assert_eq!(merged.get(b"key1", None).unwrap(), Some(b"v1_new".to_vec()));
-        assert_eq!(merged.get(b"key2", None).unwrap(), Some(b"v2".to_vec()));
-        assert_eq!(merged.get(b"key3", None).unwrap(), Some(b"v3".to_vec()));
+            // Verify
+            let merged = SSTable::open(&merged_path, None).await.unwrap();
+            assert_eq!(merged.get(b"key1", None).await.unwrap(), Some(b"v1_new".to_vec()));
+            assert_eq!(merged.get(b"key2", None).await.unwrap(), Some(b"v2".to_vec()));
+            assert_eq!(merged.get(b"key3", None).await.unwrap(), Some(b"v3".to_vec()));
 
-        // Cleanup
-        fs::remove_file(&sst1_path).unwrap();
-        fs::remove_file(&sst2_path).unwrap();
-        fs::remove_file(&merged_path).unwrap();
+            // Cleanup
+            fs::remove_file(&sst1_path).unwrap();
+            fs::remove_file(&sst2_path).unwrap();
+            fs::remove_file(&merged_path).unwrap();
+        });
     }
 
-    #[tokio::test]
-    async fn test_compaction_flow() {
-        let sst_a_path = PathBuf::from("test_flow_a.db");
-        let sst_b_path = PathBuf::from("test_flow_b.db");
-        let sst_c_path = PathBuf::from("test_flow_c.db");
-        let final_path = PathBuf::from("test_flow_final.db");
+    #[test]
+    fn test_compaction_flow() {
+        tokio_uring::start(async {
+            let sst_a_path = PathBuf::from("test_flow_a.db");
+            let sst_b_path = PathBuf::from("test_flow_b.db");
+            let sst_c_path = PathBuf::from("test_flow_c.db");
+            let final_path = PathBuf::from("test_flow_final.db");
 
-        // Cleanup
-        let _ = fs::remove_file(&sst_a_path);
-        let _ = fs::remove_file(&sst_b_path);
-        let _ = fs::remove_file(&sst_c_path);
-        let _ = fs::remove_file(&final_path);
+            // Cleanup
+            let _ = fs::remove_file(&sst_a_path);
+            let _ = fs::remove_file(&sst_b_path);
+            let _ = fs::remove_file(&sst_c_path);
+            let _ = fs::remove_file(&final_path);
 
-        // A: k1=v1, k2=v2
-        let mut data_a = BTreeMap::new();
-        data_a.insert(b"k1".to_vec(), b"v1".to_vec());
-        data_a.insert(b"k2".to_vec(), b"v2".to_vec());
-        SSTable::write(&sst_a_path, data_a, None, CompressionPolicy::Balanced, None).unwrap();
+            // A: k1=v1, k2=v2
+            let mut data_a = BTreeMap::new();
+            data_a.insert(b"k1".to_vec(), b"v1".to_vec());
+            data_a.insert(b"k2".to_vec(), b"v2".to_vec());
+            SSTable::write(&sst_a_path, data_a, None, CompressionPolicy::Balanced, None).await.unwrap();
 
-        // B: k2=v2_updated, k3=v3
-        let mut data_b = BTreeMap::new();
-        data_b.insert(b"k2".to_vec(), b"v2_updated".to_vec());
-        data_b.insert(b"k3".to_vec(), b"v3".to_vec());
-        SSTable::write(&sst_b_path, data_b, None, CompressionPolicy::Balanced, None).unwrap();
+            // B: k2=v2_updated, k3=v3
+            let mut data_b = BTreeMap::new();
+            data_b.insert(b"k2".to_vec(), b"v2_updated".to_vec());
+            data_b.insert(b"k3".to_vec(), b"v3".to_vec());
+            SSTable::write(&sst_b_path, data_b, None, CompressionPolicy::Balanced, None).await.unwrap();
 
-        // C: k1=v1_updated, k4=v4
-        let mut data_c = BTreeMap::new();
-        data_c.insert(b"k1".to_vec(), b"v1_updated".to_vec());
-        data_c.insert(b"k4".to_vec(), b"v4".to_vec());
-        SSTable::write(&sst_c_path, data_c, None, CompressionPolicy::Balanced, None).unwrap();
+            // C: k1=v1_updated, k4=v4
+            let mut data_c = BTreeMap::new();
+            data_c.insert(b"k1".to_vec(), b"v1_updated".to_vec());
+            data_c.insert(b"k4".to_vec(), b"v4".to_vec());
+            SSTable::write(&sst_c_path, data_c, None, CompressionPolicy::Balanced, None).await.unwrap();
 
-        let metas = vec![
-            mock_meta(sst_a_path.clone(), StorageTier::L0, 10, 20),
-            mock_meta(sst_b_path.clone(), StorageTier::L0, 15, 25),
-            mock_meta(sst_c_path.clone(), StorageTier::L0, 20, 30),
-        ];
+            let metas = vec![
+                mock_meta(sst_a_path.clone(), StorageTier::L0, 10, 20),
+                mock_meta(sst_b_path.clone(), StorageTier::L0, 15, 25),
+                mock_meta(sst_c_path.clone(), StorageTier::L0, 20, 30),
+            ];
 
-        // Compact all
-        Compactor::compact(&metas, &final_path, None, CompressionPolicy::Balanced, None).unwrap();
+            // Compact all
+            Compactor::compact(&metas, &final_path, None, CompressionPolicy::Balanced, None).await.unwrap();
 
-        // Verify
-        let result = SSTable::open(&final_path, None).unwrap();
-        assert_eq!(
-            result.get(b"k1", None).unwrap(),
-            Some(b"v1_updated".to_vec())
-        );
-        assert_eq!(
-            result.get(b"k2", None).unwrap(),
-            Some(b"v2_updated".to_vec())
-        );
-        assert_eq!(result.get(b"k3", None).unwrap(), Some(b"v3".to_vec()));
-        assert_eq!(result.get(b"k4", None).unwrap(), Some(b"v4".to_vec()));
+            // Verify
+            let result = SSTable::open(&final_path, None).await.unwrap();
+            assert_eq!(
+                result.get(b"k1", None).await.unwrap(),
+                Some(b"v1_updated".to_vec())
+            );
+            assert_eq!(
+                result.get(b"k2", None).await.unwrap(),
+                Some(b"v2_updated".to_vec())
+            );
+            assert_eq!(result.get(b"k3", None).await.unwrap(), Some(b"v3".to_vec()));
+            assert_eq!(result.get(b"k4", None).await.unwrap(), Some(b"v4".to_vec()));
 
-        // Final Cleanup
-        fs::remove_file(&sst_a_path).unwrap();
-        fs::remove_file(&sst_b_path).unwrap();
-        fs::remove_file(&sst_c_path).unwrap();
-        fs::remove_file(&final_path).unwrap();
+            // Final Cleanup
+            fs::remove_file(&sst_a_path).unwrap();
+            fs::remove_file(&sst_b_path).unwrap();
+            fs::remove_file(&sst_c_path).unwrap();
+            fs::remove_file(&final_path).unwrap();
+        });
     }
 
     #[test]
     fn test_compaction_with_simd() {
-        #[cfg(feature = "simd")]
-        {
-            let sst1_path = PathBuf::from("test_simd_comp_1.db");
-            let merged_path = PathBuf::from("test_simd_comp_merged.db");
+        tokio_uring::start(async {
+            #[cfg(feature = "simd")]
+            {
+                let sst1_path = PathBuf::from("test_simd_comp_1.db");
+                let merged_path = PathBuf::from("test_simd_comp_merged.db");
+
+                // Cleanup
+                let _ = fs::remove_file(&sst1_path);
+                let _ = fs::remove_file(&merged_path);
+
+                // Create data that fits SIMD DeltaDelta: 100 timestamps
+                let mut original_values = Vec::new();
+                let mut curr = 1000u64;
+                for _ in 0..100 {
+                    original_values.extend_from_slice(&curr.to_le_bytes());
+                    curr += 10;
+                }
+
+                let mut data1 = BTreeMap::new();
+                data1.insert(b"ts1".to_vec(), original_values.clone());
+                SSTable::write(&sst1_path, data1, None, CompressionPolicy::Balanced, None).await.unwrap();
+
+                let metas = vec![mock_meta(sst1_path.clone(), StorageTier::L0, 1000, 2000)];
+
+                // Compact
+                Compactor::compact(
+                    &metas,
+                    &merged_path,
+                    None,
+                    CompressionPolicy::Balanced,
+                    None,
+                ).await
+                .unwrap();
+
+                // Verify
+                let merged = SSTable::open(&merged_path, None).await.unwrap();
+                assert_eq!(merged.get(b"ts1", None).await.unwrap(), Some(original_values));
+
+                // Cleanup
+                fs::remove_file(&sst1_path).unwrap();
+                fs::remove_file(&merged_path).unwrap();
+            }
+        });
+    }
+
+    #[test]
+    fn test_compaction_with_cas() {
+        tokio_uring::start(async {
+            let sst1_path = PathBuf::from("test_cas_comp_1.db");
+            let merged_path = PathBuf::from("test_cas_comp_merged.db");
+            let cas_dir = tempdir().unwrap();
+            let cas = CASManager::new(cas_dir.path(), None).unwrap();
 
             // Cleanup
             let _ = fs::remove_file(&sst1_path);
             let _ = fs::remove_file(&merged_path);
 
-            // Create data that fits SIMD DeltaDelta: 100 timestamps
-            let mut original_values = Vec::new();
-            let mut curr = 1000u64;
-            for _ in 0..100 {
-                original_values.extend_from_slice(&curr.to_le_bytes());
-                curr += 10;
-            }
-
             let mut data1 = BTreeMap::new();
-            data1.insert(b"ts1".to_vec(), original_values.clone());
-            SSTable::write(&sst1_path, data1, None, CompressionPolicy::Balanced, None).unwrap();
+            let val = b"shared-global-value".to_vec();
+            data1.insert(b"key1".to_vec(), val.clone());
+
+            SSTable::write(
+                &sst1_path,
+                data1,
+                None,
+                CompressionPolicy::ExtremeSpace,
+                Some(&cas),
+            ).await
+            .unwrap();
 
             let metas = vec![mock_meta(sst1_path.clone(), StorageTier::L0, 1000, 2000)];
 
@@ -257,67 +310,22 @@ mod tests {
                 &metas,
                 &merged_path,
                 None,
-                CompressionPolicy::Balanced,
-                None,
-            )
+                CompressionPolicy::ExtremeSpace,
+                Some(&cas),
+            ).await
             .unwrap();
 
             // Verify
-            let merged = SSTable::open(&merged_path, None).unwrap();
-            assert_eq!(merged.get(b"ts1", None).unwrap(), Some(original_values));
+            let merged = SSTable::open(&merged_path, None).await.unwrap();
+            assert_eq!(merged.get(b"key1", Some(&cas)).await.unwrap(), Some(val));
+
+            // Verify CAS directory has one entry
+            let files: Vec<_> = fs::read_dir(cas_dir.path()).unwrap().collect();
+            assert_eq!(files.len(), 1);
 
             // Cleanup
             fs::remove_file(&sst1_path).unwrap();
             fs::remove_file(&merged_path).unwrap();
-        }
-    }
-
-    #[test]
-    fn test_compaction_with_cas() {
-        let sst1_path = PathBuf::from("test_cas_comp_1.db");
-        let merged_path = PathBuf::from("test_cas_comp_merged.db");
-        let cas_dir = tempdir().unwrap();
-        let cas = CASManager::new(cas_dir.path(), None).unwrap();
-
-        // Cleanup
-        let _ = fs::remove_file(&sst1_path);
-        let _ = fs::remove_file(&merged_path);
-
-        let mut data1 = BTreeMap::new();
-        let val = b"shared-global-value".to_vec();
-        data1.insert(b"key1".to_vec(), val.clone());
-
-        SSTable::write(
-            &sst1_path,
-            data1,
-            None,
-            CompressionPolicy::ExtremeSpace,
-            Some(&cas),
-        )
-        .unwrap();
-
-        let metas = vec![mock_meta(sst1_path.clone(), StorageTier::L0, 1000, 2000)];
-
-        // Compact
-        Compactor::compact(
-            &metas,
-            &merged_path,
-            None,
-            CompressionPolicy::ExtremeSpace,
-            Some(&cas),
-        )
-        .unwrap();
-
-        // Verify
-        let merged = SSTable::open(&merged_path, None).unwrap();
-        assert_eq!(merged.get(b"key1", Some(&cas)).unwrap(), Some(val));
-
-        // Verify CAS directory has one entry
-        let files: Vec<_> = fs::read_dir(cas_dir.path()).unwrap().collect();
-        assert_eq!(files.len(), 1);
-
-        // Cleanup
-        fs::remove_file(&sst1_path).unwrap();
-        fs::remove_file(&merged_path).unwrap();
+        });
     }
 }

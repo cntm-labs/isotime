@@ -11,187 +11,203 @@ use std::io;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[tokio::main]
-async fn main() -> io::Result<()> {
-    println!("isotime: High-Throughput Time-Series Engine starting...");
+fn main() -> io::Result<()> {
+    tokio_uring::start(async {
+        println!("isotime: High-Throughput Time-Series Engine starting (io_uring)...");
 
-    // Initialize encryption key
-    let encryption_key = Some([0u8; 32]);
-    let cas_root = "cas_store";
+        // Initialize encryption key
+        let encryption_key = Some([0u8; 32]);
+        let cas_root = "cas_store";
 
-    // --- Demo: Intent-Based Compression Policies ---
-    println!("\n--- Demo: Intent-Based Compression Policies ---");
+        // --- Demo: Intent-Based Compression Policies ---
+        println!("\n--- Demo: Intent-Based Compression Policies ---");
 
-    let policies = [
-        ("Fastest", CompressionPolicy::Fastest),
-        ("Balanced", CompressionPolicy::Balanced),
-        ("ExtremeSpace", CompressionPolicy::ExtremeSpace),
-    ];
+        let policies = [
+            ("Fastest", CompressionPolicy::Fastest),
+            ("Balanced", CompressionPolicy::Balanced),
+            ("ExtremeSpace", CompressionPolicy::ExtremeSpace),
+        ];
 
-    let mut data = BTreeMap::new();
-    let redundant_val = b"this is a redundant value that will be shared across entries".to_vec();
-    for i in 0..100 {
-        data.insert(format!("key-{:03}", i).into_bytes(), redundant_val.clone());
-    }
+        let mut data = BTreeMap::new();
+        let redundant_val = b"this is a redundant value that will be shared across entries".to_vec();
+        for i in 0..100 {
+            data.insert(format!("key-{:03}", i).into_bytes(), redundant_val.clone());
+        }
 
-    let enc_manager_temp = encryption_key.map(|k| EncryptionManager::new(&k));
+        let enc_manager_temp = encryption_key.map(|k| EncryptionManager::new(&k));
 
-    for (name, policy) in policies {
-        let path_str = format!("demo_{}.db", name.to_lowercase());
-        let path = Path::new(&path_str);
-        SSTable::write(path, data.clone(), enc_manager_temp.as_ref(), policy, None)?;
-        let size = fs::metadata(path)?.len();
-        println!("Policy: {:<12} | SSTable Size: {:>5} bytes", name, size);
-        let _ = fs::remove_file(path);
-    }
+        for (name, policy) in policies {
+            let path_str = format!("demo_{}.db", name.to_lowercase());
+            let path = Path::new(&path_str);
+            SSTable::write(path, data.clone(), enc_manager_temp.as_ref(), policy, None)
+                .await?;
+            let size = fs::metadata(path)?.len();
+            println!("Policy: {:<12} | SSTable Size: {:>5} bytes", name, size);
+            let _ = fs::remove_file(path);
+        }
 
-    // Initialize storage engine with Balanced policy
-    let engine = StorageEngine::new(
-        "isotime.wal",
-        encryption_key,
-        CompressionPolicy::Balanced,
-        cas_root,
-    )?;
+        // Initialize storage engine with Balanced policy
+        let engine = StorageEngine::new(
+            "isotime.wal",
+            encryption_key,
+            CompressionPolicy::Balanced,
+            cas_root,
+        )
+        .await?;
 
-    // --- Demo 1: Value Sharing (De-duplication) ---
-    println!("\n--- Demo 1: Value Sharing (De-duplication) ---");
-    for i in 0..50 {
-        engine.put(format!("key-{:02}", i).into_bytes(), redundant_val.clone())?;
-    }
+        // --- Demo 1: Value Sharing (De-duplication) ---
+        println!("\n--- Demo 1: Value Sharing (De-duplication) ---");
+        for i in 0..50 {
+            engine
+                .put(format!("key-{:02}", i).into_bytes(), redundant_val.clone())
+                .await?;
+        }
 
-    let shared_sst = "shared_values.db";
-    engine.flush(shared_sst)?;
-    let size = fs::metadata(shared_sst)?.len();
-    println!("SSTable with 50 redundant entries size: {} bytes", size);
+        let shared_sst = "shared_values.db";
+        engine.flush(shared_sst).await?;
+        let size = fs::metadata(shared_sst)?.len();
+        println!("SSTable with 50 redundant entries size: {} bytes", size);
 
-    // --- Demo 2: SIMD Delta-Delta Compression ---
-    println!("\n--- Demo 2: SIMD Delta-Delta Compression ---");
-    let mut timestamps = Vec::new();
-    let mut t = 1713360000u64;
-    for _ in 0..100 {
-        timestamps.extend_from_slice(&t.to_le_bytes());
-        t += 10;
-    }
+        // --- Demo 2: SIMD Delta-Delta Compression ---
+        println!("\n--- Demo 2: SIMD Delta-Delta Compression ---");
+        let mut timestamps = Vec::new();
+        let mut t = 1713360000u64;
+        for _ in 0..100 {
+            timestamps.extend_from_slice(&t.to_le_bytes());
+            t += 10;
+        }
 
-    engine.put(b"timeseries-data".to_vec(), timestamps.clone())?;
-    let compressed_sst = "compressed_simd.db";
-    engine.flush(compressed_sst)?;
+        engine
+            .put(b"timeseries-data".to_vec(), timestamps.clone())
+            .await?;
+        let compressed_sst = "compressed_simd.db";
+        engine.flush(compressed_sst).await?;
 
-    let enc_manager = engine.encryption.as_deref();
-    let sst = SSTable::open(Path::new(compressed_sst), enc_manager)?;
-    if let Some(val) = sst.get(b"timeseries-data", Some(&engine.cas))? {
-        assert_eq!(val, timestamps);
-        println!("SIMD Delta-Delta compression verified.");
-    }
+        let enc_manager = engine.encryption.as_deref();
+        let sst = SSTable::open(Path::new(compressed_sst), enc_manager).await?;
+        if let Some(val) = sst.get(b"timeseries-data", Some(&engine.cas)).await? {
+            assert_eq!(val, timestamps);
+            println!("SIMD Delta-Delta compression verified.");
+        }
 
-    // --- Demo 3: SHM Bus Ingestion ---
-    println!("\n--- Demo 3: SHM Bus Ingestion ---");
-    let mut bus = BusManager::new("bus.bin", 1024)?;
-    for i in 0..10 {
-        let event = DeltaEvent {
-            event_id: 1000 + i as u64,
-            event_type: (i % 3) as u8,
-            _reserved: [0; 7],
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos() as u64,
-            payload: [i as u8; 96],
-            checksum: 0,
+        // --- Demo 3: SHM Bus Ingestion ---
+        println!("\n--- Demo 3: SHM Bus Ingestion ---");
+        let mut bus = BusManager::new("bus.bin", 1024)?;
+        for i in 0..10 {
+            let event = DeltaEvent {
+                event_id: 1000 + i as u64,
+                event_type: (i % 3) as u8,
+                _reserved: [0; 7],
+                timestamp: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
+                payload: [i as u8; 96],
+                checksum: 0,
+            };
+            bus.push(event);
+        }
+        let count = engine.ingest_from_bus(&mut bus, 100).await?;
+        println!("Ingested {} events from SHM Bus.", count);
+
+        // --- Demo 4: Global CAS (Cross-SSTable De-duplication) ---
+        println!("\n--- Demo 4: Global CAS ---");
+        let global_val = b"global-cas-value-that-is-shared-across-files".to_vec();
+
+        // Create engine with ExtremeSpace policy to trigger Global CAS
+        let engine_extreme = StorageEngine::new(
+            "extreme.wal",
+            encryption_key,
+            CompressionPolicy::ExtremeSpace,
+            cas_root,
+        )
+        .await?;
+        engine_extreme
+            .put(b"cas-key-1".to_vec(), global_val.clone())
+            .await?;
+        engine_extreme.flush("cas_1.db").await?;
+
+        engine_extreme
+            .put(b"cas-key-2".to_vec(), global_val.clone())
+            .await?;
+        engine_extreme.flush("cas_2.db").await?;
+
+        let size1 = fs::metadata("cas_1.db")?.len();
+        let size2 = fs::metadata("cas_2.db")?.len();
+        println!("SSTable 1 size: {} bytes", size1);
+        println!("SSTable 2 size: {} bytes", size2);
+
+        let cas_files: Vec<_> = fs::read_dir(cas_root)?.collect();
+        println!("Global CAS objects count: {}", cas_files.len());
+
+        // --- Demo 5: Compaction ---
+        println!("\n--- Demo 5: Compaction ---");
+        let meta1 = SSTableMetadata {
+            path: Path::new(shared_sst).to_path_buf(),
+            tier: StorageTier::L0,
+            window_start: 0,
+            window_end: 1000,
+            size_bytes: fs::metadata(shared_sst)?.len(),
         };
-        bus.push(event);
-    }
-    let count = engine.ingest_from_bus(&mut bus, 100)?;
-    println!("Ingested {} events from SHM Bus.", count);
+        let meta2 = SSTableMetadata {
+            path: Path::new(compressed_sst).to_path_buf(),
+            tier: StorageTier::L0,
+            window_start: 0,
+            window_end: 1000,
+            size_bytes: fs::metadata(compressed_sst)?.len(),
+        };
 
-    // --- Demo 4: Global CAS (Cross-SSTable De-duplication) ---
-    println!("\n--- Demo 4: Global CAS ---");
-    let global_val = b"global-cas-value-that-is-shared-across-files".to_vec();
+        Compactor::compact(
+            &[meta1, meta2],
+            Path::new("final.db"),
+            enc_manager,
+            engine.policy,
+            Some(&engine.cas),
+        )
+        .await?;
+        let final_sst = SSTable::open(Path::new("final.db"), enc_manager).await?;
+        println!(
+            "Final SSTable entry count: {}",
+            final_sst.all_entries(Some(&engine.cas)).await?.len()
+        );
 
-    // Create engine with ExtremeSpace policy to trigger Global CAS
-    let engine_extreme = StorageEngine::new(
-        "extreme.wal",
-        encryption_key,
-        CompressionPolicy::ExtremeSpace,
-        cas_root,
-    )?;
-    engine_extreme.put(b"cas-key-1".to_vec(), global_val.clone())?;
-    engine_extreme.flush("cas_1.db")?;
+        // Verify encryption on disk
+        let raw_data = fs::read("final.db")?;
+        println!("Size of final.db: {} bytes", raw_data.len());
+        println!("First 12 bytes (Nonce): {:?}", &raw_data[0..12]);
 
-    engine_extreme.put(b"cas-key-2".to_vec(), global_val.clone())?;
-    engine_extreme.flush("cas_2.db")?;
+        // Demonstrate decryption failure with wrong key
+        let wrong_key = Some([1u8; 32]);
+        let engine_wrong = StorageEngine::new(
+            "wrong.wal",
+            wrong_key,
+            CompressionPolicy::Balanced,
+            "cas_wrong",
+        )
+        .await?;
+        assert!(SSTable::open(Path::new("final.db"), engine_wrong.encryption.as_deref())
+            .await
+            .is_err());
+        println!("Encryption verified: Failed to open with incorrect key.");
 
-    let size1 = fs::metadata("cas_1.db")?.len();
-    let size2 = fs::metadata("cas_2.db")?.len();
-    println!("SSTable 1 size: {} bytes", size1);
-    println!("SSTable 2 size: {} bytes", size2);
+        // Demo Delete
+        engine.delete(b"key-00").await?;
+        assert!(engine.get(b"key-00").await?.is_none());
 
-    let cas_files: Vec<_> = fs::read_dir(cas_root)?.collect();
-    println!("Global CAS objects count: {}", cas_files.len());
+        // Cleanup
+        let _ = fs::remove_file("isotime.wal");
+        let _ = fs::remove_file("extreme.wal");
+        let _ = fs::remove_file("wrong.wal");
+        let _ = fs::remove_file(shared_sst);
+        let _ = fs::remove_file(compressed_sst);
+        let _ = fs::remove_file("cas_1.db");
+        let _ = fs::remove_file("cas_2.db");
+        let _ = fs::remove_file("final.db");
+        let _ = fs::remove_file("bus.bin");
+        let _ = fs::remove_dir_all(cas_root);
+        let _ = fs::remove_dir_all("cas_wrong");
 
-    // --- Demo 5: Compaction ---
-    println!("\n--- Demo 5: Compaction ---");
-    let meta1 = SSTableMetadata {
-        path: Path::new(shared_sst).to_path_buf(),
-        tier: StorageTier::L0,
-        window_start: 0,
-        window_end: 1000,
-        size_bytes: fs::metadata(shared_sst)?.len(),
-    };
-    let meta2 = SSTableMetadata {
-        path: Path::new(compressed_sst).to_path_buf(),
-        tier: StorageTier::L0,
-        window_start: 0,
-        window_end: 1000,
-        size_bytes: fs::metadata(compressed_sst)?.len(),
-    };
-
-    Compactor::compact(
-        &[meta1, meta2],
-        Path::new("final.db"),
-        enc_manager,
-        engine.policy,
-        Some(&engine.cas),
-    )?;
-    let final_sst = SSTable::open(Path::new("final.db"), enc_manager)?;
-    println!(
-        "Final SSTable entry count: {}",
-        final_sst.all_entries(Some(&engine.cas))?.len()
-    );
-
-    // Verify encryption on disk
-    let raw_data = fs::read("final.db")?;
-    println!("Size of final.db: {} bytes", raw_data.len());
-    println!("First 12 bytes (Nonce): {:?}", &raw_data[0..12]);
-
-    // Demonstrate decryption failure with wrong key
-    let wrong_key = Some([1u8; 32]);
-    let engine_wrong = StorageEngine::new(
-        "wrong.wal",
-        wrong_key,
-        CompressionPolicy::Balanced,
-        "cas_wrong",
-    )?;
-    assert!(SSTable::open(Path::new("final.db"), engine_wrong.encryption.as_deref()).is_err());
-    println!("Encryption verified: Failed to open with incorrect key.");
-
-    // Demo Delete
-    engine.delete(b"key-00")?;
-    assert!(engine.get(b"key-00")?.is_none());
-
-    // Cleanup
-    let _ = fs::remove_file("isotime.wal");
-    let _ = fs::remove_file("extreme.wal");
-    let _ = fs::remove_file("wrong.wal");
-    let _ = fs::remove_file(shared_sst);
-    let _ = fs::remove_file(compressed_sst);
-    let _ = fs::remove_file("cas_1.db");
-    let _ = fs::remove_file("cas_2.db");
-    let _ = fs::remove_file("final.db");
-    let _ = fs::remove_file("bus.bin");
-    let _ = fs::remove_dir_all(cas_root);
-    let _ = fs::remove_dir_all("cas_wrong");
-
-    println!("\nisotime: Engine shut down gracefully.");
-    Ok(())
+        println!("\nisotime: Engine shut down gracefully.");
+        Ok(())
+    })
 }

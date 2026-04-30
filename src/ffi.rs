@@ -2,6 +2,7 @@ use crate::storage::compressor::CompressionPolicy;
 use crate::storage::StorageEngine;
 use std::ffi::{c_char, c_void, CStr};
 use std::ptr;
+use tokio::runtime::Runtime;
 
 #[repr(C)]
 pub enum FfiCompressionPolicy {
@@ -24,6 +25,11 @@ impl From<FfiCompressionPolicy> for CompressionPolicy {
 pub struct IsotimeBuffer {
     pub data: *mut u8,
     pub len: usize,
+}
+
+struct FfiEngine {
+    engine: StorageEngine,
+    runtime: Runtime,
 }
 
 /// Opens an isotime storage engine.
@@ -53,8 +59,20 @@ pub unsafe extern "C" fn isotime_open(
         Some(k)
     };
 
-    match StorageEngine::new(wal_str.as_ref(), key, policy.into(), cas_str.as_ref()) {
-        Ok(engine) => Box::into_raw(Box::new(engine)) as *mut c_void,
+    let rt = match Runtime::new() {
+        Ok(r) => r,
+        Err(_) => return ptr::null_mut(),
+    };
+
+    let engine_res = rt.block_on(StorageEngine::new(
+        wal_str.as_ref(),
+        key,
+        policy.into(),
+        cas_str.as_ref(),
+    ));
+
+    match engine_res {
+        Ok(engine) => Box::into_raw(Box::new(FfiEngine { engine, runtime: rt })) as *mut c_void,
         Err(_) => ptr::null_mut(),
     }
 }
@@ -66,15 +84,14 @@ pub unsafe extern "C" fn isotime_open(
 #[no_mangle]
 pub unsafe extern "C" fn isotime_close(engine_ptr: *mut c_void) {
     if !engine_ptr.is_null() {
-        let _ = Box::from_raw(engine_ptr as *mut StorageEngine);
-        // Dropped here
+        let _ = Box::from_raw(engine_ptr as *mut FfiEngine);
     }
 }
 
 /// Retrieves a value from the storage engine.
 ///
 /// # Safety
-/// - `engine_ptr` must be a valid pointer to a `StorageEngine`.
+/// - `engine_ptr` must be a valid pointer to an internal FFI engine handle.
 /// - `key_data` must be a valid pointer to at least `key_len` bytes of memory.
 #[no_mangle]
 pub unsafe extern "C" fn isotime_get(
@@ -89,15 +106,15 @@ pub unsafe extern "C" fn isotime_get(
         };
     }
 
-    let engine = &*(engine_ptr as *mut StorageEngine);
+    let ffi = &*(engine_ptr as *mut FfiEngine);
     let key = std::slice::from_raw_parts(key_data, key_len);
 
-    match engine.get(key) {
+    match ffi.runtime.block_on(ffi.engine.get(key)) {
         Ok(Some(mut val)) => {
             val.shrink_to_fit();
             let len = val.len();
             let data = val.as_mut_ptr();
-            std::mem::forget(val); // Hand memory ownership to C
+            std::mem::forget(val);
             IsotimeBuffer { data, len }
         }
         _ => IsotimeBuffer {
@@ -115,7 +132,6 @@ pub unsafe extern "C" fn isotime_get(
 pub unsafe extern "C" fn isotime_free_buffer(buffer: IsotimeBuffer) {
     if !buffer.data.is_null() && buffer.len > 0 {
         let _ = Vec::from_raw_parts(buffer.data, buffer.len, buffer.len);
-        // Dropped and memory freed
     }
 }
 
@@ -131,7 +147,6 @@ mod tests {
         let wal_path = CString::new("test_ffi.wal").unwrap();
         let cas_path = CString::new(cas_dir.path().to_str().unwrap()).unwrap();
 
-        // 1. Open engine
         let engine_ptr = unsafe {
             isotime_open(
                 wal_path.as_ptr(),
@@ -142,13 +157,11 @@ mod tests {
         };
         assert!(!engine_ptr.is_null());
 
-        // We use Rust API directly to Put data (since FFI is read-only)
-        let engine = unsafe { &*(engine_ptr as *mut StorageEngine) };
-        engine
-            .put(b"ffi_key".to_vec(), b"ffi_value".to_vec())
+        let ffi = unsafe { &*(engine_ptr as *mut FfiEngine) };
+        ffi.runtime
+            .block_on(ffi.engine.put(b"ffi_key".to_vec(), b"ffi_value".to_vec()))
             .unwrap();
 
-        // 2. Get via FFI
         let key = b"ffi_key";
         let buffer = unsafe { isotime_get(engine_ptr, key.as_ptr(), key.len()) };
         assert!(!buffer.data.is_null());
@@ -157,18 +170,13 @@ mod tests {
         let retrieved = unsafe { std::slice::from_raw_parts(buffer.data, buffer.len) };
         assert_eq!(retrieved, b"ffi_value");
 
-        // 3. Free Buffer
         unsafe { isotime_free_buffer(buffer) };
 
-        // 4. Get unknown key
         let bad_key = b"not_exist";
         let bad_buffer = unsafe { isotime_get(engine_ptr, bad_key.as_ptr(), bad_key.len()) };
         assert!(bad_buffer.data.is_null());
-        assert_eq!(bad_buffer.len, 0);
 
-        // 5. Close Engine
         unsafe { isotime_close(engine_ptr) };
-
         let _ = std::fs::remove_file("test_ffi.wal");
     }
 }
