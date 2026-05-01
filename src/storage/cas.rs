@@ -63,6 +63,31 @@ impl CASManager {
         Ok(Some(decrypted_data))
     }
 
+    pub async fn gc(&self, active_hashes: &std::collections::HashSet<[u8; 32]>) -> io::Result<usize> {
+        let mut deleted_count = 0;
+        let mut read_dir = fs::read_dir(&self.root).await?;
+
+        while let Some(entry) = read_dir.next_entry().await? {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                    if let Ok(hash_bytes) = hex::decode(file_name) {
+                        if hash_bytes.len() == 32 {
+                            let mut hash = [0u8; 32];
+                            hash.copy_from_slice(&hash_bytes);
+                            if !active_hashes.contains(&hash) {
+                                fs::remove_file(&path).await?;
+                                deleted_count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(deleted_count)
+    }
+
     fn hash_to_path(&self, hash: &[u8; 32]) -> PathBuf {
         let hex = hex::encode(hash);
         self.root.join(hex)
@@ -119,5 +144,23 @@ mod tests {
         // Decrypt via CAS manager
         let retrieved = cas.get(&hash).await.unwrap().unwrap();
         assert_eq!(data.to_vec(), retrieved);
+    }
+
+    #[tokio::test]
+    async fn test_cas_gc() {
+        let dir = tempdir().unwrap();
+        let cas = CASManager::new(dir.path(), None).unwrap();
+
+        let hash1 = cas.put(b"data1").await.unwrap();
+        let hash2 = cas.put(b"data2").await.unwrap();
+
+        let mut active = std::collections::HashSet::new();
+        active.insert(hash1); // Only hash1 is active
+
+        let deleted = cas.gc(&active).await.unwrap();
+        assert_eq!(deleted, 1);
+
+        assert!(cas.get(&hash1).await.unwrap().is_some());
+        assert!(cas.get(&hash2).await.unwrap().is_none());
     }
 }

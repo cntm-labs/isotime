@@ -270,6 +270,25 @@ impl StorageEngine {
         Ok(final_results)
     }
 
+    pub async fn run_cas_gc(&self) -> io::Result<usize> {
+        let mut active_hashes = HashSet::new();
+
+        let metas = {
+            let guard = self.metadatas.lock().await;
+            guard.clone()
+        };
+
+        for meta in metas {
+            let sstable = SSTable::open(&meta.path, self.encryption.as_deref()).await?;
+            let refs = sstable.get_cas_references()?;
+            for r in refs {
+                active_hashes.insert(r);
+            }
+        }
+
+        self.cas.gc(&active_hashes).await
+    }
+
     pub async fn delete(&self, key: &[u8]) -> io::Result<()> {
         self.wal.delete(key).await?;
         self.memtable.insert(key.to_vec(), vec![], vec![]); // Insert empty vec as Tombstone
@@ -805,6 +824,68 @@ mod tests {
 
             let _ = fs::remove_file(wal_path);
             let _ = fs::remove_file("test_engine_range_1.sst");
+        });
+    }
+
+    #[test]
+    fn test_storage_engine_cas_gc() {
+        tokio_uring::start(async {
+            let wal_path = "test_engine_gc.wal";
+            let cas_dir = tempdir().unwrap();
+            if Path::new(wal_path).exists() {
+                let _ = fs::remove_file(wal_path);
+            }
+
+            let engine = StorageEngine::new(
+                wal_path,
+                None,
+                CompressionPolicy::ExtremeSpace,
+                cas_dir.path(),
+            )
+            .await
+            .unwrap();
+
+            // Insert data and flush (creates CAS objects)
+            engine
+                .put(b"k1".to_vec(), b"v1".to_vec(), vec![])
+                .await
+                .unwrap();
+            engine.flush("test_gc_1.sst").await.unwrap();
+
+            // Delete k1 and flush (tombstone)
+            engine.delete(b"k1").await.unwrap();
+            engine.flush("test_gc_2.sst").await.unwrap();
+
+            // Compact to drop the data
+            let metas = engine.metadatas.lock().await.clone();
+            Compactor::compact(
+                &metas,
+                Path::new("test_gc_final.sst"),
+                None,
+                CompressionPolicy::ExtremeSpace,
+                Some(&engine.cas),
+            )
+            .await
+            .unwrap();
+
+            // Replace metas with compacted one
+            engine.metadatas.lock().await.clear();
+            engine.metadatas.lock().await.push(SSTableMetadata {
+                path: PathBuf::from("test_gc_final.sst"),
+                tier: StorageTier::L0,
+                window_start: 0,
+                window_end: 1,
+                size_bytes: 100,
+            });
+
+            // Run GC - v1 should be orphaned because it was dropped by compaction
+            let deleted = engine.run_cas_gc().await.unwrap();
+            assert_eq!(deleted, 1);
+
+            let _ = fs::remove_file(wal_path);
+            let _ = fs::remove_file("test_gc_1.sst");
+            let _ = fs::remove_file("test_gc_2.sst");
+            let _ = fs::remove_file("test_gc_final.sst");
         });
     }
 }
