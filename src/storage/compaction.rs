@@ -46,7 +46,7 @@ impl Compactor {
             max_ts = max_ts.max(meta.window_end);
         }
 
-        SSTable::write(dest_path, merged_data, merged_tags, enc, policy, cas).await?;
+        SSTable::write(dest_path, merged_data.clone(), merged_tags, enc, policy, cas).await?;
 
         let size_bytes = std::fs::metadata(dest_path)?.len();
         let current_tier = src_metas[0].tier;
@@ -57,12 +57,17 @@ impl Compactor {
             StorageTier::L3 => StorageTier::L3,
         };
 
+        let min_key = merged_data.keys().next().cloned().unwrap_or_default();
+        let max_key = merged_data.keys().last().cloned().unwrap_or_default();
+
         Ok(SSTableMetadata {
             path: dest_path.to_path_buf(),
             tier: next_tier,
             window_start: min_ts,
             window_end: max_ts,
             size_bytes,
+            min_key,
+            max_key,
         })
     }
 
@@ -108,6 +113,8 @@ mod tests {
             window_start: start,
             window_end: end,
             size_bytes: 0,
+            min_key: vec![],
+            max_key: vec![],
         }
     }
 

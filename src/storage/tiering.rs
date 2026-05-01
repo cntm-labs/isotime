@@ -14,57 +14,76 @@ pub enum StorageTier {
 pub struct SSTableMetadata {
     pub path: PathBuf,
     pub tier: StorageTier,
-    pub window_start: u64, // Unix timestamp (nanos/secs)
+    pub window_start: u64,
     pub window_end: u64,
     pub size_bytes: u64,
+    pub min_key: Vec<u8>,
+    pub max_key: Vec<u8>,
 }
 
 pub struct CapacityManager {
-    pub threshold: f32,
+    pub threshold: f32, // e.g., 0.85 (85%)
     pub hot_dir: PathBuf,
     pub cold_dir: PathBuf,
 }
 
 impl CapacityManager {
-    pub fn find_eviction_candidates(&self, metadatas: &[SSTableMetadata]) -> Vec<SSTableMetadata> {
+    /// Checks disk usage of the hot storage partition.
+    pub fn get_hot_usage(&self) -> io::Result<f32> {
         let disks = Disks::new_with_refreshed_list();
+        for disk in &disks {
+            if self.hot_dir.starts_with(disk.mount_point()) {
+                let total = disk.total_space();
+                let available = disk.available_space();
+                let used = total - available;
+                return Ok(used as f32 / total as f32);
+            }
+        }
+        Ok(0.0)
+    }
 
-        // Find the disk containing hot_dir
-        let disk = disks
-            .iter()
-            .find(|d| self.hot_dir.starts_with(d.mount_point()));
+    /// Selects candidates for eviction to cold storage based on capacity.
+    pub fn find_eviction_candidates(&self, metadatas: &[SSTableMetadata]) -> Vec<SSTableMetadata> {
+        let current_usage = self.get_hot_usage().unwrap_or(0.0);
+        if current_usage < self.threshold {
+            return vec![];
+        }
 
-        if let Some(d) = disk {
-            let total = d.total_space();
-            let available = d.available_space();
-            let used = total - available;
-            let usage_ratio = used as f32 / total as f32;
+        let mut sorted_metas = metadatas.to_vec();
+        // Sort by tier descending, then by age (oldest first)
+        sorted_metas.sort_by(|a, b| {
+            b.tier
+                .cmp(&a.tier)
+                .then_with(|| a.window_start.cmp(&b.window_start))
+        });
 
-            if usage_ratio > self.threshold {
-                let mut l2_metas: Vec<_> = metadatas
-                    .iter()
-                    .filter(|m| m.tier == StorageTier::L2)
-                    .cloned()
-                    .collect();
+        let mut candidates = Vec::new();
+        let mut projected_usage = current_usage;
 
-                // Sort by window_start (oldest first)
-                l2_metas.sort_by_key(|m| m.window_start);
+        let disks = Disks::new_with_refreshed_list();
+        let mut total = 1u64;
+        for disk in &disks {
+            if self.hot_dir.starts_with(disk.mount_point()) {
+                total = disk.total_space();
+                break;
+            }
+        }
 
-                let mut candidates = Vec::new();
-                let mut projected_usage = usage_ratio;
-
-                for meta in l2_metas {
-                    if projected_usage <= self.threshold {
-                        break;
-                    }
-                    candidates.push(meta.clone());
+        for meta in sorted_metas {
+            if meta.tier != StorageTier::L3 {
+                candidates.push(meta.clone());
+                if total > 0 {
                     // Rough estimation of usage reduction
                     projected_usage -= meta.size_bytes as f32 / total as f32;
                 }
-                return candidates;
+                if projected_usage < self.threshold {
+                    return candidates;
+                }
             }
         }
 
         vec![]
     }
 }
+
+use std::io;
