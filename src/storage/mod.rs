@@ -181,6 +181,14 @@ impl StorageEngine {
         };
 
         for meta in metas {
+            // Prune by key range
+            if !meta.min_key.is_empty() && key < meta.min_key.as_slice() {
+                continue;
+            }
+            if !meta.max_key.is_empty() && key > meta.max_key.as_slice() {
+                continue;
+            }
+
             let sstable = SSTable::open(&meta.path, self.encryption.as_deref()).await?;
             if let Some(val) = sstable.get(key, Some(&self.cas)).await? {
                 if val.is_empty() {
@@ -188,6 +196,11 @@ impl StorageEngine {
                 }
                 return Ok(Some(val));
             }
+
+            // In a true Leveled Architecture, if tier >= L1, ranges are non-overlapping.
+            // If we checked the file that SHOULD have the key and didn't find it,
+            // we can theoretically stop checking other files in THIS tier.
+            // However, to keep it robust during the transition, we'll continue for now.
         }
 
         Ok(None)
@@ -299,7 +312,7 @@ impl StorageEngine {
         let (snapshot, tags) = self.memtable.snapshot();
         SSTable::write(
             sstable_path.as_ref(),
-            snapshot,
+            snapshot.clone(),
             tags,
             self.encryption.as_deref(),
             self.policy,
@@ -312,12 +325,17 @@ impl StorageEngine {
             .unwrap_or(Duration::from_secs(0))
             .as_secs();
 
+        let min_key = snapshot.keys().next().cloned().unwrap_or_default();
+        let max_key = snapshot.keys().last().cloned().unwrap_or_default();
+
         let meta = SSTableMetadata {
             path: sstable_path.as_ref().to_path_buf(),
             tier: StorageTier::L0,
             window_start: now,
             window_end: now,
             size_bytes: std::fs::metadata(sstable_path.as_ref())?.len(),
+            min_key,
+            max_key,
         };
 
         self.metadatas.lock().await.push(meta);
@@ -393,6 +411,8 @@ mod tests {
                     window_start: base_hour + i * 10,
                     window_end: base_hour + i * 10 + 5,
                     size_bytes: fs::metadata(&path).unwrap().len(),
+                    min_key: vec![],
+                    max_key: vec![],
                 };
                 engine.metadatas.lock().await.push(meta);
             }
@@ -762,6 +782,8 @@ mod tests {
                 window_start: 1,
                 window_end: 1,
                 size_bytes: 100,
+                min_key: vec![],
+                max_key: vec![],
             };
             let meta2 = SSTableMetadata {
                 path: PathBuf::from(sst2_path),
@@ -769,6 +791,8 @@ mod tests {
                 window_start: 2,
                 window_end: 2,
                 size_bytes: 100,
+                min_key: vec![],
+                max_key: vec![],
             };
             engine2.metadatas.lock().await.push(meta1);
             engine2.metadatas.lock().await.push(meta2);
@@ -876,6 +900,8 @@ mod tests {
                 window_start: 0,
                 window_end: 1,
                 size_bytes: 100,
+                min_key: vec![],
+                max_key: vec![],
             });
 
             // Run GC - v1 should be orphaned because it was dropped by compaction

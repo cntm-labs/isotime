@@ -156,6 +156,8 @@ fn main() -> io::Result<()> {
             window_start: 0,
             window_end: 1000,
             size_bytes: fs::metadata(shared_sst)?.len(),
+            min_key: vec![],
+            max_key: vec![],
         };
         let meta2 = SSTableMetadata {
             path: Path::new(compressed_sst).to_path_buf(),
@@ -163,8 +165,9 @@ fn main() -> io::Result<()> {
             window_start: 0,
             window_end: 1000,
             size_bytes: fs::metadata(compressed_sst)?.len(),
+            min_key: vec![],
+            max_key: vec![],
         };
-
         Compactor::compact(
             &[meta1, meta2],
             Path::new("final.db"),
@@ -189,6 +192,8 @@ fn main() -> io::Result<()> {
             window_start: 0,
             window_end: 1000,
             size_bytes: fs::metadata("final.db")?.len(),
+            min_key: vec![],
+            max_key: vec![],
         };
         engine_extreme.metadatas.lock().await.clear();
         engine_extreme.metadatas.lock().await.push(meta_final);
