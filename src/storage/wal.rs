@@ -7,12 +7,12 @@ use tokio_uring::fs::File;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum WalOp {
-    Put(Vec<u8>, Vec<u8>),
+    Put(Vec<u8>, Vec<u8>, Vec<String>),
     Delete(Vec<u8>),
 }
 
 enum WalRequest {
-    Append(Vec<u8>, Vec<u8>, oneshot::Sender<io::Result<()>>),
+    Append(Vec<u8>, Vec<u8>, Vec<String>, oneshot::Sender<io::Result<()>>),
     Delete(Vec<u8>, oneshot::Sender<io::Result<()>>),
 }
 
@@ -47,13 +47,20 @@ impl Wal {
 
                 while let Some(req) = rx.recv().await {
                     match req {
-                        WalRequest::Append(key, value, reply) => {
+                        WalRequest::Append(key, value, tags, reply) => {
                             let mut entry = Vec::new();
                             entry.push(0u8);
                             entry.extend_from_slice(&(key.len() as u32).to_le_bytes());
                             entry.extend_from_slice(&key);
                             entry.extend_from_slice(&(value.len() as u32).to_le_bytes());
                             entry.extend_from_slice(&value);
+
+                            // Tags serialization
+                            entry.extend_from_slice(&(tags.len() as u32).to_le_bytes());
+                            for tag in tags {
+                                entry.extend_from_slice(&(tag.len() as u32).to_le_bytes());
+                                entry.extend_from_slice(tag.as_bytes());
+                            }
 
                             let res = Self::write_entry(
                                 &file,
@@ -158,7 +165,22 @@ impl Wal {
                     let val_len = u32::from_le_bytes(val_len_buf) as usize;
                     let mut value = vec![0u8; val_len];
                     std::io::Read::read_exact(&mut payload_reader, &mut value)?;
-                    entries.push(WalOp::Put(key, value));
+
+                    // Read tags
+                    let mut num_tags_buf = [0u8; 4];
+                    std::io::Read::read_exact(&mut payload_reader, &mut num_tags_buf)?;
+                    let num_tags = u32::from_le_bytes(num_tags_buf) as usize;
+                    let mut tags = Vec::with_capacity(num_tags);
+                    for _ in 0..num_tags {
+                        let mut tag_len_buf = [0u8; 4];
+                        std::io::Read::read_exact(&mut payload_reader, &mut tag_len_buf)?;
+                        let tag_len = u32::from_le_bytes(tag_len_buf) as usize;
+                        let mut tag_bytes = vec![0u8; tag_len];
+                        std::io::Read::read_exact(&mut payload_reader, &mut tag_bytes)?;
+                        tags.push(String::from_utf8_lossy(&tag_bytes).to_string());
+                    }
+
+                    entries.push(WalOp::Put(key, value, tags));
                 }
                 1 => {
                     entries.push(WalOp::Delete(key));
@@ -169,10 +191,10 @@ impl Wal {
         Ok(entries)
     }
 
-    pub async fn append(&self, key: &[u8], value: &[u8]) -> io::Result<()> {
+    pub async fn append(&self, key: &[u8], value: &[u8], tags: Vec<String>) -> io::Result<()> {
         let (tx, rx) = oneshot::channel();
         self.tx
-            .send(WalRequest::Append(key.to_vec(), value.to_vec(), tx))
+            .send(WalRequest::Append(key.to_vec(), value.to_vec(), tags, tx))
             .await
             .map_err(|_| io::Error::other("WAL worker died"))?;
         rx.await
@@ -204,8 +226,8 @@ mod tests {
 
         {
             let (wal, _) = Wal::new(wal_path, None).await.unwrap();
-            wal.append(b"key1", b"value1").await.unwrap();
-            wal.append(b"key2", b"value2").await.unwrap();
+            wal.append(b"key1", b"value1", vec!["tag1".to_string()]).await.unwrap();
+            wal.append(b"key2", b"value2", vec![]).await.unwrap();
             wal.delete(b"key1").await.unwrap();
             // Drop wal triggers sender drop
         }
@@ -215,8 +237,8 @@ mod tests {
         {
             let (_wal, entries) = Wal::new(wal_path, None).await.unwrap();
             assert_eq!(entries.len(), 3);
-            assert_eq!(entries[0], WalOp::Put(b"key1".to_vec(), b"value1".to_vec()));
-            assert_eq!(entries[1], WalOp::Put(b"key2".to_vec(), b"value2".to_vec()));
+            assert_eq!(entries[0], WalOp::Put(b"key1".to_vec(), b"value1".to_vec(), vec!["tag1".to_string()]));
+            assert_eq!(entries[1], WalOp::Put(b"key2".to_vec(), b"value2".to_vec(), vec![]));
             assert_eq!(entries[2], WalOp::Delete(b"key1".to_vec()));
         }
 

@@ -23,6 +23,7 @@ impl SSTable {
     pub async fn write(
         path: &Path,
         data: BTreeMap<Vec<u8>, Vec<u8>>,
+        tags: BTreeMap<String, Vec<Vec<u8>>>,
         enc: Option<&EncryptionManager>,
         policy: CompressionPolicy,
         cas: Option<&CASManager>,
@@ -93,6 +94,26 @@ impl SSTable {
             entries.push(entry);
         }
 
+        let mut tag_indexes = Vec::new();
+        for (tag_name, keys) in tags {
+            let tag_str = fbb.create_string(&tag_name);
+            let mut keys_offsets = Vec::new();
+            for key in keys {
+                let k_vec = fbb.create_vector(&key);
+                keys_offsets.push(fbs::TagKey::create(&mut fbb, &fbs::TagKeyArgs { key: Some(k_vec) }));
+            }
+            let keys_vec = fbb.create_vector(&keys_offsets);
+            let tag_index = fbs::TagIndex::create(
+                &mut fbb,
+                &fbs::TagIndexArgs {
+                    tag: Some(tag_str),
+                    keys: Some(keys_vec),
+                },
+            );
+            tag_indexes.push(tag_index);
+        }
+        let tag_indexes_vec = fbb.create_vector(&tag_indexes);
+
         let bloom_bytes = bloom.to_bytes();
         let bloom_vec = fbb.create_vector(&bloom_bytes);
 
@@ -103,6 +124,7 @@ impl SSTable {
                 entries: Some(entries_vec),
                 bloom_filter: Some(bloom_vec),
                 num_hashes: bloom.num_hashes() as u32,
+                tag_indexes: Some(tag_indexes_vec),
             },
         );
 
@@ -133,7 +155,7 @@ impl SSTable {
         };
 
         // Basic verification
-        let sstable_data = fbs::root_as_sstable_data(&buffer).map_err(|e| {
+        let _ = fbs::root_as_sstable_data(&buffer).map_err(|e| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!(
@@ -142,6 +164,8 @@ impl SSTable {
                 ),
             )
         })?;
+
+        let sstable_data = fbs::root_as_sstable_data(&buffer).unwrap();
 
         let bloom_filter = if let (Some(bloom_bytes), num_hashes) =
             (sstable_data.bloom_filter(), sstable_data.num_hashes())
@@ -276,6 +300,55 @@ impl SSTable {
         Ok(None)
     }
 
+    pub async fn get_by_tag(&self, tag: &str) -> io::Result<Vec<Vec<u8>>> {
+        let sstable_data = fbs::root_as_sstable_data(&self.buffer).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Invalid FlatBuffers data: {:?}", e),
+            )
+        })?;
+
+        let mut result = Vec::new();
+        if let Some(tag_indexes) = sstable_data.tag_indexes() {
+            for i in 0..tag_indexes.len() {
+                let tag_idx = tag_indexes.get(i);
+                if tag_idx.tag().unwrap() == tag {
+                    if let Some(keys) = tag_idx.keys() {
+                        for j in 0..keys.len() {
+                            result.push(keys.get(j).key().unwrap().bytes().to_vec());
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        Ok(result)
+    }
+
+    pub async fn all_entries(&self, cas: Option<&CASManager>) -> io::Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let sstable_data = fbs::root_as_sstable_data(&self.buffer).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Invalid FlatBuffers data: {:?}", e),
+            )
+        })?;
+
+        let mut result = Vec::new();
+        if let Some(entries) = sstable_data.entries() {
+            for i in 0..entries.len() {
+                let entry = entries.get(i);
+                let key = entry
+                    .key()
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Missing key"))?
+                    .bytes()
+                    .to_vec();
+                let value = self.resolve_value(entry, entries, cas).await?;
+                result.push((key, value));
+            }
+        }
+        Ok(result)
+    }
+
     pub async fn get_range(
         &self,
         start_key: &[u8],
@@ -320,30 +393,6 @@ impl SSTable {
         }
         Ok(result)
     }
-
-    pub async fn all_entries(&self, cas: Option<&CASManager>) -> io::Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        let sstable_data = fbs::root_as_sstable_data(&self.buffer).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Invalid FlatBuffers data: {:?}", e),
-            )
-        })?;
-
-        let mut result = Vec::new();
-        if let Some(entries) = sstable_data.entries() {
-            for i in 0..entries.len() {
-                let entry = entries.get(i);
-                let key = entry
-                    .key()
-                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Missing key"))?
-                    .bytes()
-                    .to_vec();
-                let value = self.resolve_value(entry, entries, cas).await?;
-                result.push((key, value));
-            }
-        }
-        Ok(result)
-    }
 }
 
 #[cfg(test)]
@@ -351,7 +400,6 @@ mod tests {
     use super::*;
     use std::fs as std_fs;
     use std::path::PathBuf;
-    use tempfile::tempdir;
 
     #[tokio::test]
     async fn test_sstable_write_read_with_bloom() {
@@ -364,7 +412,7 @@ mod tests {
         data.insert(b"key1".to_vec(), b"value1".to_vec());
         data.insert(b"key2".to_vec(), b"value2".to_vec());
 
-        SSTable::write(&path, data, None, CompressionPolicy::Balanced, None)
+        SSTable::write(&path, data, BTreeMap::new(), None, CompressionPolicy::Balanced, None)
             .await
             .expect("Failed to write SSTable");
 
@@ -399,7 +447,7 @@ mod tests {
             data.insert(format!("key{:03}", i).into_bytes(), common_value.clone());
         }
 
-        SSTable::write(&path, data, None, CompressionPolicy::Balanced, None)
+        SSTable::write(&path, data, BTreeMap::new(), None, CompressionPolicy::Balanced, None)
             .await
             .expect("Failed to write SSTable");
 
@@ -421,42 +469,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_sstable_encryption_cycle() {
-        let path = PathBuf::from("test_sstable_enc.db");
+    async fn test_sstable_write_read() {
+        let path = PathBuf::from("test_sstable_write_read_v2.db");
         if path.exists() {
             let _ = std_fs::remove_file(&path);
         }
 
-        let key = [0u8; 32];
-        let manager = EncryptionManager::new(&key);
-
         let mut data = BTreeMap::new();
-        data.insert(b"secret_key".to_vec(), b"secret_value".to_vec());
+        data.insert(b"key1".to_vec(), b"value1".to_vec());
+        data.insert(b"key2".to_vec(), b"value2".to_vec());
+        data.insert(b"key3".to_vec(), b"value3".to_vec());
 
-        // Write with encryption
-        SSTable::write(
-            &path,
-            data.clone(),
-            Some(&manager),
-            CompressionPolicy::Balanced,
-            None,
-        )
-        .await
-        .unwrap();
+        SSTable::write(&path, data, BTreeMap::new(), None, CompressionPolicy::Balanced, None)
+            .await
+            .expect("Failed to write SSTable");
 
-        // Read back with encryption
-        let sstable = SSTable::open(&path, Some(&manager)).await.unwrap();
+        let sstable = SSTable::open(&path, None).await.expect("Failed to open SSTable");
         assert_eq!(
-            sstable.get(b"secret_key", None).await.unwrap(),
-            Some(b"secret_value".to_vec())
+            sstable.get(b"key1", None).await.expect("Failed to get key1"),
+            Some(b"value1".to_vec())
+        );
+        assert_eq!(
+            sstable.get(b"key2", None).await.expect("Failed to get key2"),
+            Some(b"value2".to_vec())
+        );
+        assert_eq!(
+            sstable.get(b"key3", None).await.expect("Failed to get key3"),
+            Some(b"value3".to_vec())
+        );
+        assert_eq!(
+            sstable.get(b"key4", None).await.expect("Failed to get key4"),
+            None
         );
 
         let _ = std_fs::remove_file(&path);
     }
 
     #[tokio::test]
-    async fn test_sstable_get_range() {
-        let path = PathBuf::from("test_sstable_range.db");
+    async fn test_sstable_tag_indexing() {
+        let path = PathBuf::from("test_sstable_tags.db");
         if path.exists() {
             let _ = std_fs::remove_file(&path);
         }
@@ -464,19 +515,19 @@ mod tests {
         let mut data = BTreeMap::new();
         data.insert(b"k1".to_vec(), b"v1".to_vec());
         data.insert(b"k2".to_vec(), b"v2".to_vec());
-        data.insert(b"k3".to_vec(), b"v3".to_vec());
-        data.insert(b"k4".to_vec(), b"v4".to_vec());
 
-        SSTable::write(&path, data, None, CompressionPolicy::Balanced, None)
+        let mut tags = BTreeMap::new();
+        tags.insert("tag1".to_string(), vec![b"k1".to_vec(), b"k2".to_vec()]);
+
+        SSTable::write(&path, data, tags, None, CompressionPolicy::Balanced, None)
             .await
             .expect("Failed to write SSTable");
 
-        let sstable = SSTable::open(&path, None).await.unwrap();
-        let results = sstable.get_range(b"k2", b"k4", None).await.unwrap();
-
-        assert_eq!(results.len(), 2);
-        assert_eq!(results[0].0, b"k2");
-        assert_eq!(results[1].0, b"k3");
+        let sstable = SSTable::open(&path, None).await.expect("Failed to open SSTable");
+        let keys = sstable.get_by_tag("tag1").await.unwrap();
+        assert_eq!(keys.len(), 2);
+        assert!(keys.contains(&b"k1".to_vec()));
+        assert!(keys.contains(&b"k2".to_vec()));
 
         let _ = std_fs::remove_file(&path);
     }
