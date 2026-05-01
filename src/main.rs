@@ -179,6 +179,23 @@ fn main() -> io::Result<()> {
             final_sst.all_entries(Some(&engine.cas)).await?.len()
         );
 
+        // --- Demo 7: CAS Garbage Collection ---
+        println!("\n--- Demo 7: CAS Garbage Collection ---");
+        // We use engine_extreme which has the cas_root we want to clean up
+        // First, let's make sure it "thinks" only the latest SSTable is active
+        let meta_final = SSTableMetadata {
+            path: Path::new("final.db").to_path_buf(),
+            tier: StorageTier::L3,
+            window_start: 0,
+            window_end: 1000,
+            size_bytes: fs::metadata("final.db")?.len(),
+        };
+        engine_extreme.metadatas.lock().await.clear();
+        engine_extreme.metadatas.lock().await.push(meta_final);
+
+        let deleted = engine_extreme.run_cas_gc().await?;
+        println!("CAS GC deleted {} orphaned objects.", deleted);
+
         // Verify encryption on disk
         let raw_data = fs::read("final.db")?;
         println!("Size of final.db: {} bytes", raw_data.len());

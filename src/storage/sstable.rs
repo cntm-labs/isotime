@@ -100,7 +100,10 @@ impl SSTable {
             let mut keys_offsets = Vec::new();
             for key in keys {
                 let k_vec = fbb.create_vector(&key);
-                keys_offsets.push(fbs::TagKey::create(&mut fbb, &fbs::TagKeyArgs { key: Some(k_vec) }));
+                keys_offsets.push(fbs::TagKey::create(
+                    &mut fbb,
+                    &fbs::TagKeyArgs { key: Some(k_vec) },
+                ));
             }
             let keys_vec = fbb.create_vector(&keys_offsets);
             let tag_index = fbs::TagIndex::create(
@@ -325,6 +328,35 @@ impl SSTable {
         Ok(result)
     }
 
+    pub fn get_cas_references(&self) -> io::Result<Vec<[u8; 32]>> {
+        let sstable_data = fbs::root_as_sstable_data(&self.buffer).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Invalid FlatBuffers data: {:?}", e),
+            )
+        })?;
+
+        let mut refs = Vec::new();
+        if let Some(entries) = sstable_data.entries() {
+            for i in 0..entries.len() {
+                let entry = entries.get(i);
+                if entry.value_type() == fbs::ValueType::HashValue {
+                    if let Some(hash_val) = entry.value_as_hash_value() {
+                        if let Some(hash_bytes) = hash_val.hash() {
+                            let bytes = hash_bytes.bytes();
+                            if bytes.len() == 32 {
+                                let mut hash = [0u8; 32];
+                                hash.copy_from_slice(bytes);
+                                refs.push(hash);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(refs)
+    }
+
     pub async fn all_entries(&self, cas: Option<&CASManager>) -> io::Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let sstable_data = fbs::root_as_sstable_data(&self.buffer).map_err(|e| {
             io::Error::new(
@@ -400,6 +432,7 @@ mod tests {
     use super::*;
     use std::fs as std_fs;
     use std::path::PathBuf;
+    use tempfile::tempdir;
 
     #[tokio::test]
     async fn test_sstable_write_read_with_bloom() {
@@ -412,9 +445,16 @@ mod tests {
         data.insert(b"key1".to_vec(), b"value1".to_vec());
         data.insert(b"key2".to_vec(), b"value2".to_vec());
 
-        SSTable::write(&path, data, BTreeMap::new(), None, CompressionPolicy::Balanced, None)
-            .await
-            .expect("Failed to write SSTable");
+        SSTable::write(
+            &path,
+            data,
+            BTreeMap::new(),
+            None,
+            CompressionPolicy::Balanced,
+            None,
+        )
+        .await
+        .expect("Failed to write SSTable");
 
         let sstable = SSTable::open(&path, None).await.expect("Failed to open SSTable");
 
@@ -447,9 +487,16 @@ mod tests {
             data.insert(format!("key{:03}", i).into_bytes(), common_value.clone());
         }
 
-        SSTable::write(&path, data, BTreeMap::new(), None, CompressionPolicy::Balanced, None)
-            .await
-            .expect("Failed to write SSTable");
+        SSTable::write(
+            &path,
+            data,
+            BTreeMap::new(),
+            None,
+            CompressionPolicy::Balanced,
+            None,
+        )
+        .await
+        .expect("Failed to write SSTable");
 
         let file_size = std_fs::metadata(&path).unwrap().len();
         assert!(file_size < 4500, "File size too large: {}", file_size);
@@ -480,9 +527,16 @@ mod tests {
         data.insert(b"key2".to_vec(), b"value2".to_vec());
         data.insert(b"key3".to_vec(), b"value3".to_vec());
 
-        SSTable::write(&path, data, BTreeMap::new(), None, CompressionPolicy::Balanced, None)
-            .await
-            .expect("Failed to write SSTable");
+        SSTable::write(
+            &path,
+            data,
+            BTreeMap::new(),
+            None,
+            CompressionPolicy::Balanced,
+            None,
+        )
+        .await
+        .expect("Failed to write SSTable");
 
         let sstable = SSTable::open(&path, None).await.expect("Failed to open SSTable");
         assert_eq!(
@@ -528,6 +582,37 @@ mod tests {
         assert_eq!(keys.len(), 2);
         assert!(keys.contains(&b"k1".to_vec()));
         assert!(keys.contains(&b"k2".to_vec()));
+
+        let _ = std_fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn test_sstable_cas_references() {
+        let path = PathBuf::from("test_sstable_cas_refs.db");
+        if path.exists() {
+            let _ = std_fs::remove_file(&path);
+        }
+        let cas_dir = tempdir().unwrap();
+        let cas = CASManager::new(cas_dir.path(), None).unwrap();
+
+        let mut data = BTreeMap::new();
+        data.insert(b"k1".to_vec(), b"v1".to_vec());
+
+        SSTable::write(
+            &path,
+            data,
+            BTreeMap::new(),
+            None,
+            CompressionPolicy::ExtremeSpace,
+            Some(&cas),
+        )
+        .await
+        .unwrap();
+
+        let sstable = SSTable::open(&path, None).await.unwrap();
+        let refs = sstable.get_cas_references().unwrap();
+
+        assert_eq!(refs.len(), 1);
 
         let _ = std_fs::remove_file(&path);
     }
