@@ -159,7 +159,7 @@ mod tests {
 
         let ffi = unsafe { &*(engine_ptr as *mut FfiEngine) };
         ffi.runtime
-            .block_on(ffi.engine.put(b"ffi_key".to_vec(), b"ffi_value".to_vec()))
+            .block_on(ffi.engine.put(b"ffi_key".to_vec(), b"ffi_value".to_vec(), vec![]))
             .unwrap();
 
         let key = b"ffi_key";

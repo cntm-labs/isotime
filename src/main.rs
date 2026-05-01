@@ -39,7 +39,7 @@ fn main() -> io::Result<()> {
         for (name, policy) in policies {
             let path_str = format!("demo_{}.db", name.to_lowercase());
             let path = Path::new(&path_str);
-            SSTable::write(path, data.clone(), enc_manager_temp.as_ref(), policy, None)
+            SSTable::write(path, data.clone(), BTreeMap::new(), enc_manager_temp.as_ref(), policy, None)
                 .await?;
             let size = fs::metadata(path)?.len();
             println!("Policy: {:<12} | SSTable Size: {:>5} bytes", name, size);
@@ -59,7 +59,7 @@ fn main() -> io::Result<()> {
         println!("\n--- Demo 1: Value Sharing (De-duplication) ---");
         for i in 0..50 {
             engine
-                .put(format!("key-{:02}", i).into_bytes(), redundant_val.clone())
+                .put(format!("key-{:02}", i).into_bytes(), redundant_val.clone(), vec![])
                 .await?;
         }
 
@@ -78,7 +78,7 @@ fn main() -> io::Result<()> {
         }
 
         engine
-            .put(b"timeseries-data".to_vec(), timestamps.clone())
+            .put(b"timeseries-data".to_vec(), timestamps.clone(), vec!["metrics".to_string()])
             .await?;
         let compressed_sst = "compressed_simd.db";
         engine.flush(compressed_sst).await?;
@@ -123,12 +123,12 @@ fn main() -> io::Result<()> {
         )
         .await?;
         engine_extreme
-            .put(b"cas-key-1".to_vec(), global_val.clone())
+            .put(b"cas-key-1".to_vec(), global_val.clone(), vec!["global".to_string()])
             .await?;
         engine_extreme.flush("cas_1.db").await?;
 
         engine_extreme
-            .put(b"cas-key-2".to_vec(), global_val.clone())
+            .put(b"cas-key-2".to_vec(), global_val.clone(), vec!["global".to_string()])
             .await?;
         engine_extreme.flush("cas_2.db").await?;
 
@@ -140,8 +140,16 @@ fn main() -> io::Result<()> {
         let cas_files: Vec<_> = fs::read_dir(cas_root)?.collect();
         println!("Global CAS objects count: {}", cas_files.len());
 
-        // --- Demo 5: Compaction ---
-        println!("\n--- Demo 5: Compaction ---");
+        // --- Demo 5: Tag Indexing ---
+        println!("\n--- Demo 5: Tag Indexing ---");
+        let tag_results = engine_extreme.get_by_tag("global").await?;
+        println!("Found {} entries with tag 'global'", tag_results.len());
+        for (k, _) in tag_results {
+            println!("  Key: {}", String::from_utf8_lossy(&k));
+        }
+
+        // --- Demo 6: Compaction ---
+        println!("\n--- Demo 6: Compaction ---");
         let meta1 = SSTableMetadata {
             path: Path::new(shared_sst).to_path_buf(),
             tier: StorageTier::L0,

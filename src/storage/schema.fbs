@@ -22,10 +22,20 @@ table Entry {
   value: ValueType;
 }
 
+table TagKey {
+  key: [ubyte];
+}
+
+table TagIndex {
+  tag: string;
+  keys: [TagKey];
+}
+
 table SSTableData {
   entries: [Entry];
   bloom_filter: [ubyte];
   num_hashes: uint32;
+  tag_indexes: [TagIndex];
 }
 
 root_type SSTableData;
