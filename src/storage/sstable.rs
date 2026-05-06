@@ -357,7 +357,10 @@ impl SSTable {
         Ok(refs)
     }
 
-    pub async fn all_entries(&self, cas: Option<&CASManager>) -> io::Result<Vec<(Vec<u8>, Vec<u8>)>> {
+    pub async fn all_entries(
+        &self,
+        cas: Option<&CASManager>,
+    ) -> io::Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let sstable_data = fbs::root_as_sstable_data(&self.buffer).map_err(|e| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -456,7 +459,9 @@ mod tests {
         .await
         .expect("Failed to write SSTable");
 
-        let sstable = SSTable::open(&path, None).await.expect("Failed to open SSTable");
+        let sstable = SSTable::open(&path, None)
+            .await
+            .expect("Failed to open SSTable");
 
         // Positive cases
         assert_eq!(
@@ -501,7 +506,9 @@ mod tests {
         let file_size = std_fs::metadata(&path).unwrap().len();
         assert!(file_size < 4500, "File size too large: {}", file_size);
 
-        let sstable = SSTable::open(&path, None).await.expect("Failed to open SSTable");
+        let sstable = SSTable::open(&path, None)
+            .await
+            .expect("Failed to open SSTable");
         for i in 0..100 {
             assert_eq!(
                 sstable
@@ -538,21 +545,35 @@ mod tests {
         .await
         .expect("Failed to write SSTable");
 
-        let sstable = SSTable::open(&path, None).await.expect("Failed to open SSTable");
+        let sstable = SSTable::open(&path, None)
+            .await
+            .expect("Failed to open SSTable");
         assert_eq!(
-            sstable.get(b"key1", None).await.expect("Failed to get key1"),
+            sstable
+                .get(b"key1", None)
+                .await
+                .expect("Failed to get key1"),
             Some(b"value1".to_vec())
         );
         assert_eq!(
-            sstable.get(b"key2", None).await.expect("Failed to get key2"),
+            sstable
+                .get(b"key2", None)
+                .await
+                .expect("Failed to get key2"),
             Some(b"value2".to_vec())
         );
         assert_eq!(
-            sstable.get(b"key3", None).await.expect("Failed to get key3"),
+            sstable
+                .get(b"key3", None)
+                .await
+                .expect("Failed to get key3"),
             Some(b"value3".to_vec())
         );
         assert_eq!(
-            sstable.get(b"key4", None).await.expect("Failed to get key4"),
+            sstable
+                .get(b"key4", None)
+                .await
+                .expect("Failed to get key4"),
             None
         );
 
@@ -577,7 +598,9 @@ mod tests {
             .await
             .expect("Failed to write SSTable");
 
-        let sstable = SSTable::open(&path, None).await.expect("Failed to open SSTable");
+        let sstable = SSTable::open(&path, None)
+            .await
+            .expect("Failed to open SSTable");
         let keys = sstable.get_by_tag("tag1").await.unwrap();
         assert_eq!(keys.len(), 2);
         assert!(keys.contains(&b"k1".to_vec()));

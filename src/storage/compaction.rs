@@ -25,28 +25,36 @@ impl Compactor {
 
         for meta in src_metas {
             let sstable = SSTable::open(&meta.path, enc).await?;
-            
+
             // Merge Data
             let entries = sstable.all_entries(cas).await?;
             for (key, value) in entries {
                 merged_data.insert(key, value);
             }
-            
+
             // Merge Tags (Note: this is a simple merge, could be refined)
             // Ideally we'd scan all tags in the sstable.
             // But how do we know which tags are in the sstable?
             // FlatBuffers SSTableData has `tag_indexes`.
             // Let's implement a way to get all tags from an SSTable.
             // Actually, we can just iterate over the tag_indexes in the SSTableData.
-            
+
             // I'll add a helper to SSTable to get all tags.
             // For now, let's assume we can get them.
-            
+
             min_ts = min_ts.min(meta.window_start);
             max_ts = max_ts.max(meta.window_end);
         }
 
-        SSTable::write(dest_path, merged_data.clone(), merged_tags, enc, policy, cas).await?;
+        SSTable::write(
+            dest_path,
+            merged_data.clone(),
+            merged_tags,
+            enc,
+            policy,
+            cas,
+        )
+        .await?;
 
         let size_bytes = std::fs::metadata(dest_path)?.len();
         let current_tier = src_metas[0].tier;
@@ -150,13 +158,31 @@ mod tests {
             let mut data1 = BTreeMap::new();
             data1.insert(b"key1".to_vec(), b"v1".to_vec());
             data1.insert(b"key2".to_vec(), b"v2".to_vec());
-            SSTable::write(&sst1_path, data1, BTreeMap::new(), None, CompressionPolicy::Balanced, None).await.unwrap();
+            SSTable::write(
+                &sst1_path,
+                data1,
+                BTreeMap::new(),
+                None,
+                CompressionPolicy::Balanced,
+                None,
+            )
+            .await
+            .unwrap();
 
             // SSTable 2: key1=v1_new, key3=v3
             let mut data2 = BTreeMap::new();
             data2.insert(b"key1".to_vec(), b"v1_new".to_vec());
             data2.insert(b"key3".to_vec(), b"v3".to_vec());
-            SSTable::write(&sst2_path, data2, BTreeMap::new(), None, CompressionPolicy::Balanced, None).await.unwrap();
+            SSTable::write(
+                &sst2_path,
+                data2,
+                BTreeMap::new(),
+                None,
+                CompressionPolicy::Balanced,
+                None,
+            )
+            .await
+            .unwrap();
 
             let metas = vec![
                 mock_meta(sst1_path.clone(), StorageTier::L0, 100, 200),
@@ -170,7 +196,8 @@ mod tests {
                 None,
                 CompressionPolicy::Balanced,
                 None,
-            ).await
+            )
+            .await
             .unwrap();
 
             assert_eq!(result_meta.tier, StorageTier::L1);
@@ -179,9 +206,18 @@ mod tests {
 
             // Verify
             let merged = SSTable::open(&merged_path, None).await.unwrap();
-            assert_eq!(merged.get(b"key1", None).await.unwrap(), Some(b"v1_new".to_vec()));
-            assert_eq!(merged.get(b"key2", None).await.unwrap(), Some(b"v2".to_vec()));
-            assert_eq!(merged.get(b"key3", None).await.unwrap(), Some(b"v3".to_vec()));
+            assert_eq!(
+                merged.get(b"key1", None).await.unwrap(),
+                Some(b"v1_new".to_vec())
+            );
+            assert_eq!(
+                merged.get(b"key2", None).await.unwrap(),
+                Some(b"v2".to_vec())
+            );
+            assert_eq!(
+                merged.get(b"key3", None).await.unwrap(),
+                Some(b"v3".to_vec())
+            );
 
             // Cleanup
             let _ = fs::remove_file(&sst1_path);
@@ -208,19 +244,46 @@ mod tests {
             let mut data_a = BTreeMap::new();
             data_a.insert(b"k1".to_vec(), b"v1".to_vec());
             data_a.insert(b"k2".to_vec(), b"v2".to_vec());
-            SSTable::write(&sst_a_path, data_a, BTreeMap::new(), None, CompressionPolicy::Balanced, None).await.unwrap();
+            SSTable::write(
+                &sst_a_path,
+                data_a,
+                BTreeMap::new(),
+                None,
+                CompressionPolicy::Balanced,
+                None,
+            )
+            .await
+            .unwrap();
 
             // B: k2=v2_updated, k3=v3
             let mut data_b = BTreeMap::new();
             data_b.insert(b"k2".to_vec(), b"v2_updated".to_vec());
             data_b.insert(b"k3".to_vec(), b"v3".to_vec());
-            SSTable::write(&sst_b_path, data_b, BTreeMap::new(), None, CompressionPolicy::Balanced, None).await.unwrap();
+            SSTable::write(
+                &sst_b_path,
+                data_b,
+                BTreeMap::new(),
+                None,
+                CompressionPolicy::Balanced,
+                None,
+            )
+            .await
+            .unwrap();
 
             // C: k1=v1_updated, k4=v4
             let mut data_c = BTreeMap::new();
             data_c.insert(b"k1".to_vec(), b"v1_updated".to_vec());
             data_c.insert(b"k4".to_vec(), b"v4".to_vec());
-            SSTable::write(&sst_c_path, data_c, BTreeMap::new(), None, CompressionPolicy::Balanced, None).await.unwrap();
+            SSTable::write(
+                &sst_c_path,
+                data_c,
+                BTreeMap::new(),
+                None,
+                CompressionPolicy::Balanced,
+                None,
+            )
+            .await
+            .unwrap();
 
             let metas = vec![
                 mock_meta(sst_a_path.clone(), StorageTier::L0, 10, 20),
@@ -229,7 +292,9 @@ mod tests {
             ];
 
             // Compact all
-            Compactor::compact(&metas, &final_path, None, CompressionPolicy::Balanced, None).await.unwrap();
+            Compactor::compact(&metas, &final_path, None, CompressionPolicy::Balanced, None)
+                .await
+                .unwrap();
 
             // Verify
             let result = SSTable::open(&final_path, None).await.unwrap();
@@ -274,7 +339,16 @@ mod tests {
 
                 let mut data1 = BTreeMap::new();
                 data1.insert(b"ts1".to_vec(), original_values.clone());
-                SSTable::write(&sst1_path, data1, BTreeMap::new(), None, CompressionPolicy::Balanced, None).await.unwrap();
+                SSTable::write(
+                    &sst1_path,
+                    data1,
+                    BTreeMap::new(),
+                    None,
+                    CompressionPolicy::Balanced,
+                    None,
+                )
+                .await
+                .unwrap();
 
                 let metas = vec![mock_meta(sst1_path.clone(), StorageTier::L0, 1000, 2000)];
 
@@ -285,12 +359,16 @@ mod tests {
                     None,
                     CompressionPolicy::Balanced,
                     None,
-                ).await
+                )
+                .await
                 .unwrap();
 
                 // Verify
                 let merged = SSTable::open(&merged_path, None).await.unwrap();
-                assert_eq!(merged.get(b"ts1", None).await.unwrap(), Some(original_values));
+                assert_eq!(
+                    merged.get(b"ts1", None).await.unwrap(),
+                    Some(original_values)
+                );
 
                 // Cleanup
                 let _ = fs::remove_file(&sst1_path);
@@ -322,7 +400,8 @@ mod tests {
                 None,
                 CompressionPolicy::ExtremeSpace,
                 Some(&cas),
-            ).await
+            )
+            .await
             .unwrap();
 
             let metas = vec![mock_meta(sst1_path.clone(), StorageTier::L0, 1000, 2000)];
@@ -334,7 +413,8 @@ mod tests {
                 None,
                 CompressionPolicy::ExtremeSpace,
                 Some(&cas),
-            ).await
+            )
+            .await
             .unwrap();
 
             // Verify

@@ -63,7 +63,10 @@ impl CASManager {
         Ok(Some(decrypted_data))
     }
 
-    pub async fn gc(&self, active_hashes: &std::collections::HashSet<[u8; 32]>) -> io::Result<usize> {
+    pub async fn gc(
+        &self,
+        active_hashes: &std::collections::HashSet<[u8; 32]>,
+    ) -> io::Result<usize> {
         let mut deleted_count = 0;
         let mut read_dir = fs::read_dir(&self.root).await?;
 

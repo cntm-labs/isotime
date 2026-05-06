@@ -12,7 +12,12 @@ pub enum WalOp {
 }
 
 enum WalRequest {
-    Append(Vec<u8>, Vec<u8>, Vec<String>, oneshot::Sender<io::Result<()>>),
+    Append(
+        Vec<u8>,
+        Vec<u8>,
+        Vec<String>,
+        oneshot::Sender<io::Result<()>>,
+    ),
     Delete(Vec<u8>, oneshot::Sender<io::Result<()>>),
 }
 
@@ -226,7 +231,9 @@ mod tests {
 
         {
             let (wal, _) = Wal::new(wal_path, None).await.unwrap();
-            wal.append(b"key1", b"value1", vec!["tag1".to_string()]).await.unwrap();
+            wal.append(b"key1", b"value1", vec!["tag1".to_string()])
+                .await
+                .unwrap();
             wal.append(b"key2", b"value2", vec![]).await.unwrap();
             wal.delete(b"key1").await.unwrap();
             // Drop wal triggers sender drop
@@ -237,8 +244,18 @@ mod tests {
         {
             let (_wal, entries) = Wal::new(wal_path, None).await.unwrap();
             assert_eq!(entries.len(), 3);
-            assert_eq!(entries[0], WalOp::Put(b"key1".to_vec(), b"value1".to_vec(), vec!["tag1".to_string()]));
-            assert_eq!(entries[1], WalOp::Put(b"key2".to_vec(), b"value2".to_vec(), vec![]));
+            assert_eq!(
+                entries[0],
+                WalOp::Put(
+                    b"key1".to_vec(),
+                    b"value1".to_vec(),
+                    vec!["tag1".to_string()]
+                )
+            );
+            assert_eq!(
+                entries[1],
+                WalOp::Put(b"key2".to_vec(), b"value2".to_vec(), vec![])
+            );
             assert_eq!(entries[2], WalOp::Delete(b"key1".to_vec()));
         }
 

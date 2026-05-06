@@ -40,6 +40,7 @@ impl MemTable {
         // StorageEngine::get will handle resolving if the key still exists.
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn snapshot(
         &self,
     ) -> (

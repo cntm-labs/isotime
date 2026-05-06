@@ -29,7 +29,8 @@ fn main() -> io::Result<()> {
         ];
 
         let mut data = BTreeMap::new();
-        let redundant_val = b"this is a redundant value that will be shared across entries".to_vec();
+        let redundant_val =
+            b"this is a redundant value that will be shared across entries".to_vec();
         for i in 0..100 {
             data.insert(format!("key-{:03}", i).into_bytes(), redundant_val.clone());
         }
@@ -39,8 +40,15 @@ fn main() -> io::Result<()> {
         for (name, policy) in policies {
             let path_str = format!("demo_{}.db", name.to_lowercase());
             let path = Path::new(&path_str);
-            SSTable::write(path, data.clone(), BTreeMap::new(), enc_manager_temp.as_ref(), policy, None)
-                .await?;
+            SSTable::write(
+                path,
+                data.clone(),
+                BTreeMap::new(),
+                enc_manager_temp.as_ref(),
+                policy,
+                None,
+            )
+            .await?;
             let size = fs::metadata(path)?.len();
             println!("Policy: {:<12} | SSTable Size: {:>5} bytes", name, size);
             let _ = fs::remove_file(path);
@@ -59,7 +67,11 @@ fn main() -> io::Result<()> {
         println!("\n--- Demo 1: Value Sharing (De-duplication) ---");
         for i in 0..50 {
             engine
-                .put(format!("key-{:02}", i).into_bytes(), redundant_val.clone(), vec![])
+                .put(
+                    format!("key-{:02}", i).into_bytes(),
+                    redundant_val.clone(),
+                    vec![],
+                )
                 .await?;
         }
 
@@ -78,7 +90,11 @@ fn main() -> io::Result<()> {
         }
 
         engine
-            .put(b"timeseries-data".to_vec(), timestamps.clone(), vec!["metrics".to_string()])
+            .put(
+                b"timeseries-data".to_vec(),
+                timestamps.clone(),
+                vec!["metrics".to_string()],
+            )
             .await?;
         let compressed_sst = "compressed_simd.db";
         engine.flush(compressed_sst).await?;
@@ -123,12 +139,20 @@ fn main() -> io::Result<()> {
         )
         .await?;
         engine_extreme
-            .put(b"cas-key-1".to_vec(), global_val.clone(), vec!["global".to_string()])
+            .put(
+                b"cas-key-1".to_vec(),
+                global_val.clone(),
+                vec!["global".to_string()],
+            )
             .await?;
         engine_extreme.flush("cas_1.db").await?;
 
         engine_extreme
-            .put(b"cas-key-2".to_vec(), global_val.clone(), vec!["global".to_string()])
+            .put(
+                b"cas-key-2".to_vec(),
+                global_val.clone(),
+                vec!["global".to_string()],
+            )
             .await?;
         engine_extreme.flush("cas_2.db").await?;
 
@@ -215,9 +239,11 @@ fn main() -> io::Result<()> {
             "cas_wrong",
         )
         .await?;
-        assert!(SSTable::open(Path::new("final.db"), engine_wrong.encryption.as_deref())
-            .await
-            .is_err());
+        assert!(
+            SSTable::open(Path::new("final.db"), engine_wrong.encryption.as_deref())
+                .await
+                .is_err()
+        );
         println!("Encryption verified: Failed to open with incorrect key.");
 
         // Demo Delete
