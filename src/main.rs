@@ -63,6 +63,9 @@ fn main() -> io::Result<()> {
         )
         .await?;
 
+        // Start Dashboard WebSocket Server
+        engine.start_dashboard_server("127.0.0.1:9000".to_string());
+
         // --- Demo 1: Value Sharing (De-duplication) ---
         println!("\n--- Demo 1: Value Sharing (De-duplication) ---");
         for i in 0..50 {
