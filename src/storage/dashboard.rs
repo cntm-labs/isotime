@@ -31,7 +31,11 @@ impl DashboardServer {
         Ok(())
     }
 
-    async fn handle_connection(&self, stream: TcpStream, addr: SocketAddr) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn handle_connection(
+        &self,
+        stream: TcpStream,
+        addr: SocketAddr,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let ws_stream = accept_async(stream).await?;
         println!("New Dashboard connection: {}", addr);
 

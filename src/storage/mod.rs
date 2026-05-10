@@ -133,10 +133,10 @@ impl StorageEngine {
                         for p in paths_to_remove {
                             let _ = std::fs::remove_file(p);
                         }
-                        
+
                         let new_tier = new_meta.tier;
                         metas_lock.push(new_meta);
-                        
+
                         self.broadcast_to_dashboard(json!({
                             "type": "log",
                             "level": "COMP",
@@ -172,7 +172,7 @@ impl StorageEngine {
                 if let Some(m) = metas_lock.iter_mut().find(|m| m.path == meta_to_move.path) {
                     m.path = new_path.clone();
                     m.tier = StorageTier::L3;
-                    
+
                     self.broadcast_to_dashboard(json!({
                         "type": "log",
                         "level": "INFO",
@@ -188,13 +188,13 @@ impl StorageEngine {
     pub async fn put(&self, key: Vec<u8>, value: Vec<u8>, tags: Vec<String>) -> io::Result<()> {
         self.wal.append(&key, &value, tags.clone()).await?;
         self.memtable.insert(key, value, tags);
-        
+
         // In a real system we might debounce this
         self.broadcast_to_dashboard(json!({
             "type": "metrics_update",
             "tps_event": 1
         }));
-        
+
         Ok(())
     }
 
@@ -310,10 +310,7 @@ impl StorageEngine {
         }
 
         // 3. Filter out tombstones (empty values)
-        let final_results: Vec<_> = merged
-            .into_iter()
-            .filter(|(_, v)| !v.is_empty())
-            .collect();
+        let final_results: Vec<_> = merged.into_iter().filter(|(_, v)| !v.is_empty()).collect();
 
         Ok(final_results)
     }
@@ -335,13 +332,13 @@ impl StorageEngine {
         }
 
         let count = self.cas.gc(&active_hashes).await?;
-        
+
         self.broadcast_to_dashboard(json!({
             "type": "log",
             "level": "GC",
             "message": format!("CAS GC completed: {} orphaned objects reclaimed", count)
         }));
-        
+
         Ok(count)
     }
 
@@ -382,13 +379,13 @@ impl StorageEngine {
         };
 
         self.metadatas.lock().await.push(meta);
-        
+
         self.broadcast_to_dashboard(json!({
             "type": "log",
             "level": "INFO",
             "message": format!("MemTable flushed to SSTable: {:?}", sstable_path.as_ref().file_name().unwrap())
         }));
-        
+
         Ok(())
     }
 
@@ -424,14 +421,10 @@ mod tests {
         tokio_uring::start(async {
             let wal_path = "test_tiering.wal";
             let cas_dir = tempdir().unwrap();
-            let engine = StorageEngine::new(
-                wal_path,
-                None,
-                CompressionPolicy::Balanced,
-                cas_dir.path(),
-            )
-            .await
-            .unwrap();
+            let engine =
+                StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                    .await
+                    .unwrap();
 
             // 1. Create multiple L0 files in same hour
             let now = SystemTime::now()
@@ -490,15 +483,14 @@ mod tests {
                 let _ = fs::remove_file(wal_path);
             }
 
-            let engine = StorageEngine::new(
-                wal_path,
-                None,
-                CompressionPolicy::Balanced,
-                cas_dir.path(),
-            )
-            .await
-            .unwrap();
-            engine.put(b"key1".to_vec(), b"value1".to_vec(), vec![]).await.unwrap();
+            let engine =
+                StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                    .await
+                    .unwrap();
+            engine
+                .put(b"key1".to_vec(), b"value1".to_vec(), vec![])
+                .await
+                .unwrap();
             assert_eq!(engine.get(b"key1").await.unwrap(), Some(b"value1".to_vec()));
             assert_eq!(engine.get(b"key2").await.unwrap(), None);
 
@@ -515,22 +507,39 @@ mod tests {
                 let _ = fs::remove_file(wal_path);
             }
 
-            let engine = StorageEngine::new(
-                wal_path,
-                None,
-                CompressionPolicy::Balanced,
-                cas_dir.path(),
-            )
-            .await
-            .unwrap();
-            
-            engine.put(b"key1".to_vec(), b"v1".to_vec(), vec!["sensor1".to_string()]).await.unwrap();
-            engine.put(b"key2".to_vec(), b"v2".to_vec(), vec!["sensor1".to_string()]).await.unwrap();
-            engine.put(b"key3".to_vec(), b"v3".to_vec(), vec!["sensor2".to_string()]).await.unwrap();
+            let engine =
+                StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                    .await
+                    .unwrap();
+
+            engine
+                .put(
+                    b"key1".to_vec(),
+                    b"v1".to_vec(),
+                    vec!["sensor1".to_string()],
+                )
+                .await
+                .unwrap();
+            engine
+                .put(
+                    b"key2".to_vec(),
+                    b"v2".to_vec(),
+                    vec!["sensor1".to_string()],
+                )
+                .await
+                .unwrap();
+            engine
+                .put(
+                    b"key3".to_vec(),
+                    b"v3".to_vec(),
+                    vec!["sensor2".to_string()],
+                )
+                .await
+                .unwrap();
 
             let results = engine.get_by_tag("sensor1").await.unwrap();
             assert_eq!(results.len(), 2);
-            
+
             let keys: Vec<_> = results.iter().map(|(k, _)| k.clone()).collect();
             assert!(keys.contains(&b"key1".to_vec()));
             assert!(keys.contains(&b"key2".to_vec()));
@@ -549,28 +558,26 @@ mod tests {
             }
 
             {
-                let engine = StorageEngine::new(
-                    wal_path,
-                    None,
-                    CompressionPolicy::Balanced,
-                    cas_dir.path(),
-                )
-                .await
-                .unwrap();
-                engine.put(b"key1".to_vec(), b"value1".to_vec(), vec![]).await.unwrap();
-                engine.put(b"key2".to_vec(), b"value2".to_vec(), vec![]).await.unwrap();
+                let engine =
+                    StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                        .await
+                        .unwrap();
+                engine
+                    .put(b"key1".to_vec(), b"value1".to_vec(), vec![])
+                    .await
+                    .unwrap();
+                engine
+                    .put(b"key2".to_vec(), b"value2".to_vec(), vec![])
+                    .await
+                    .unwrap();
                 engine.delete(b"key1").await.unwrap();
             }
 
             {
-                let engine = StorageEngine::new(
-                    wal_path,
-                    None,
-                    CompressionPolicy::Balanced,
-                    cas_dir.path(),
-                )
-                .await
-                .unwrap();
+                let engine =
+                    StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                        .await
+                        .unwrap();
                 assert_eq!(engine.get(b"key1").await.unwrap(), None);
                 assert_eq!(engine.get(b"key2").await.unwrap(), Some(b"value2".to_vec()));
             }
@@ -589,17 +596,12 @@ mod tests {
             }
 
             let engine = Arc::new(
-                StorageEngine::new(
-                    wal_path,
-                    None,
-                    CompressionPolicy::Balanced,
-                    cas_dir.path(),
-                )
-                .await
-                .unwrap(),
+                StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                    .await
+                    .unwrap(),
             );
             let num_threads = 4;
-            let num_inserts = 50; 
+            let num_inserts = 50;
             let mut handles = vec![];
 
             for i in 0..num_threads {
@@ -642,15 +644,14 @@ mod tests {
                 let _ = fs::remove_file(sst_path);
             }
 
-            let engine = StorageEngine::new(
-                wal_path,
-                None,
-                CompressionPolicy::Balanced,
-                cas_dir.path(),
-            )
-            .await
-            .unwrap();
-            engine.put(b"k1".to_vec(), b"v1".to_vec(), vec![]).await.unwrap();
+            let engine =
+                StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                    .await
+                    .unwrap();
+            engine
+                .put(b"k1".to_vec(), b"v1".to_vec(), vec![])
+                .await
+                .unwrap();
             engine.flush(sst_path).await.unwrap();
 
             let sstable = SSTable::open(Path::new(sst_path), None).await.unwrap();
@@ -680,14 +681,10 @@ mod tests {
                 let _ = fs::remove_file(bus_path);
             }
 
-            let engine = StorageEngine::new(
-                wal_path,
-                None,
-                CompressionPolicy::Balanced,
-                cas_dir.path(),
-            )
-            .await
-            .unwrap();
+            let engine =
+                StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                    .await
+                    .unwrap();
             let mut bus = BusManager::new(bus_path, 10).unwrap();
 
             let event = DeltaEvent {
@@ -751,9 +748,14 @@ mod tests {
             )
             .await
             .unwrap();
-            let sstable = SSTable::open(Path::new(sst_path), engine2.encryption.as_deref()).await.unwrap();
+            let sstable = SSTable::open(Path::new(sst_path), engine2.encryption.as_deref())
+                .await
+                .unwrap();
             assert_eq!(
-                sstable.get(b"secure_key", Some(&engine2.cas)).await.unwrap(),
+                sstable
+                    .get(b"secure_key", Some(&engine2.cas))
+                    .await
+                    .unwrap(),
                 Some(b"secure_value".to_vec())
             );
 
@@ -767,7 +769,11 @@ mod tests {
             )
             .await
             .unwrap();
-            assert!(SSTable::open(Path::new(sst_path), engine3.encryption.as_deref()).await.is_err());
+            assert!(
+                SSTable::open(Path::new(sst_path), engine3.encryption.as_deref())
+                    .await
+                    .is_err()
+            );
 
             let _ = fs::remove_file(wal_path);
             let _ = fs::remove_file(sst_path);
@@ -789,17 +795,16 @@ mod tests {
                 let _ = fs::remove_file(sst_path);
             }
 
-            let engine = StorageEngine::new(
-                wal_path,
-                None,
-                CompressionPolicy::Balanced,
-                cas_dir.path(),
-            )
-            .await
-            .unwrap();
+            let engine =
+                StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                    .await
+                    .unwrap();
 
             // Put and flush
-            engine.put(b"k1".to_vec(), b"v1".to_vec(), vec![]).await.unwrap();
+            engine
+                .put(b"k1".to_vec(), b"v1".to_vec(), vec![])
+                .await
+                .unwrap();
             engine.flush(sst_path).await.unwrap();
 
             // Delete (creates tombstone in memtable)
@@ -866,18 +871,23 @@ mod tests {
                 let _ = fs::remove_file(wal_path);
             }
 
-            let engine = StorageEngine::new(
-                wal_path,
-                None,
-                CompressionPolicy::Balanced,
-                cas_dir.path(),
-            )
-            .await
-            .unwrap();
+            let engine =
+                StorageEngine::new(wal_path, None, CompressionPolicy::Balanced, cas_dir.path())
+                    .await
+                    .unwrap();
 
-            engine.put(b"k1".to_vec(), b"v1".to_vec(), vec![]).await.unwrap();
-            engine.put(b"k2".to_vec(), b"v2".to_vec(), vec![]).await.unwrap();
-            engine.put(b"k3".to_vec(), b"v3".to_vec(), vec![]).await.unwrap();
+            engine
+                .put(b"k1".to_vec(), b"v1".to_vec(), vec![])
+                .await
+                .unwrap();
+            engine
+                .put(b"k2".to_vec(), b"v2".to_vec(), vec![])
+                .await
+                .unwrap();
+            engine
+                .put(b"k3".to_vec(), b"v3".to_vec(), vec![])
+                .await
+                .unwrap();
 
             // Flush to SSTable
             engine.flush("test_engine_range_1.sst").await.unwrap();
@@ -894,7 +904,7 @@ mod tests {
             assert_eq!(results.len(), 2);
             assert_eq!(results[0], (b"k1".to_vec(), b"v1".to_vec()));
             assert_eq!(results[1], (b"k2".to_vec(), b"v2_new".to_vec())); // Updated
-                                                                         // k3 is deleted, so it's missing
+                                                                          // k3 is deleted, so it's missing
 
             let _ = fs::remove_file(wal_path);
             let _ = fs::remove_file("test_engine_range_1.sst");
