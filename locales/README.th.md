@@ -9,9 +9,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-active-success)](./)
 
-![Rust LOD](https://img.shields.io/badge/Rust_LOD-0-dea584.svg) ![Total LOD](https://img.shields.io/badge/Total_LOD-0-brightgreen.svg)
+![Rust LOD](https://img.shields.io/badge/Rust_LOD-5.6k-dea584.svg) ![Total LOD](https://img.shields.io/badge/Total_LOD-6.2k-brightgreen.svg)
 
-[![Rust](https://img.shields.io/badge/Rust-dea584?logo=rust&logoColor=white)](./) [![FlatBuffers](https://img.shields.io/badge/FlatBuffers-4285F4?logo=google&logoColor=white)](./) [![SIMD](https://img.shields.io/badge/SIMD-555555)](./) [![Tokio](https://img.shields.io/badge/Tokio-dea584?logo=rust&logoColor=white)](./)
+[![Rust](https://img.shields.io/badge/Rust-dea584?logo=rust&logoColor=white)](https://www.rust-lang.org/) [![FlatBuffers](https://img.shields.io/badge/FlatBuffers-4285F4?logo=google&logoColor=white)](https://google.github.io/flatbuffers/) [![SIMD](https://img.shields.io/badge/SIMD-555555)](https://doc.rust-lang.org/std/simd/index.html) [![Tokio](https://img.shields.io/badge/Tokio-dea584?logo=rust&logoColor=white)](https://tokio.rs/)
 
 </div>
 
