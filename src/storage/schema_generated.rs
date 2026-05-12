@@ -574,6 +574,265 @@ pub mod isotime {
                 ds.finish()
             }
         }
+        pub enum VectorClockEntryOffset {}
+        #[derive(Copy, Clone, PartialEq)]
+
+        pub struct VectorClockEntry<'a> {
+            pub _tab: ::flatbuffers::Table<'a>,
+        }
+
+        impl<'a> ::flatbuffers::Follow<'a> for VectorClockEntry<'a> {
+            type Inner = VectorClockEntry<'a>;
+            #[inline]
+            unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+                Self {
+                    _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+                }
+            }
+        }
+
+        impl<'a> VectorClockEntry<'a> {
+            pub const VT_NODE_ID: ::flatbuffers::VOffsetT = 4;
+            pub const VT_COUNTER: ::flatbuffers::VOffsetT = 6;
+
+            #[inline]
+            pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+                VectorClockEntry { _tab: table }
+            }
+            #[allow(unused_mut)]
+            pub fn create<
+                'bldr: 'args,
+                'args: 'mut_bldr,
+                'mut_bldr,
+                A: ::flatbuffers::Allocator + 'bldr,
+            >(
+                _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+                args: &'args VectorClockEntryArgs,
+            ) -> ::flatbuffers::WIPOffset<VectorClockEntry<'bldr>> {
+                let mut builder = VectorClockEntryBuilder::new(_fbb);
+                builder.add_counter(args.counter);
+                builder.add_node_id(args.node_id);
+                builder.finish()
+            }
+
+            #[inline]
+            pub fn node_id(&self) -> u32 {
+                // Safety:
+                // Created from valid Table for this object
+                // which contains a valid value in this slot
+                unsafe {
+                    self._tab
+                        .get::<u32>(VectorClockEntry::VT_NODE_ID, Some(0))
+                        .unwrap()
+                }
+            }
+            #[inline]
+            pub fn counter(&self) -> u64 {
+                // Safety:
+                // Created from valid Table for this object
+                // which contains a valid value in this slot
+                unsafe {
+                    self._tab
+                        .get::<u64>(VectorClockEntry::VT_COUNTER, Some(0))
+                        .unwrap()
+                }
+            }
+        }
+
+        impl ::flatbuffers::Verifiable for VectorClockEntry<'_> {
+            #[inline]
+            fn run_verifier(
+                v: &mut ::flatbuffers::Verifier,
+                pos: usize,
+            ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+                v.visit_table(pos)?
+                    .visit_field::<u32>("node_id", Self::VT_NODE_ID, false)?
+                    .visit_field::<u64>("counter", Self::VT_COUNTER, false)?
+                    .finish();
+                Ok(())
+            }
+        }
+        pub struct VectorClockEntryArgs {
+            pub node_id: u32,
+            pub counter: u64,
+        }
+        impl<'a> Default for VectorClockEntryArgs {
+            #[inline]
+            fn default() -> Self {
+                VectorClockEntryArgs {
+                    node_id: 0,
+                    counter: 0,
+                }
+            }
+        }
+
+        pub struct VectorClockEntryBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+            fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+            start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+        }
+        impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> VectorClockEntryBuilder<'a, 'b, A> {
+            #[inline]
+            pub fn add_node_id(&mut self, node_id: u32) {
+                self.fbb_
+                    .push_slot::<u32>(VectorClockEntry::VT_NODE_ID, node_id, 0);
+            }
+            #[inline]
+            pub fn add_counter(&mut self, counter: u64) {
+                self.fbb_
+                    .push_slot::<u64>(VectorClockEntry::VT_COUNTER, counter, 0);
+            }
+            #[inline]
+            pub fn new(
+                _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+            ) -> VectorClockEntryBuilder<'a, 'b, A> {
+                let start = _fbb.start_table();
+                VectorClockEntryBuilder {
+                    fbb_: _fbb,
+                    start_: start,
+                }
+            }
+            #[inline]
+            pub fn finish(self) -> ::flatbuffers::WIPOffset<VectorClockEntry<'a>> {
+                let o = self.fbb_.end_table(self.start_);
+                ::flatbuffers::WIPOffset::new(o.value())
+            }
+        }
+
+        impl ::core::fmt::Debug for VectorClockEntry<'_> {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                let mut ds = f.debug_struct("VectorClockEntry");
+                ds.field("node_id", &self.node_id());
+                ds.field("counter", &self.counter());
+                ds.finish()
+            }
+        }
+        pub enum VectorClockOffset {}
+        #[derive(Copy, Clone, PartialEq)]
+
+        pub struct VectorClock<'a> {
+            pub _tab: ::flatbuffers::Table<'a>,
+        }
+
+        impl<'a> ::flatbuffers::Follow<'a> for VectorClock<'a> {
+            type Inner = VectorClock<'a>;
+            #[inline]
+            unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+                Self {
+                    _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+                }
+            }
+        }
+
+        impl<'a> VectorClock<'a> {
+            pub const VT_ENTRIES: ::flatbuffers::VOffsetT = 4;
+
+            #[inline]
+            pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+                VectorClock { _tab: table }
+            }
+            #[allow(unused_mut)]
+            pub fn create<
+                'bldr: 'args,
+                'args: 'mut_bldr,
+                'mut_bldr,
+                A: ::flatbuffers::Allocator + 'bldr,
+            >(
+                _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+                args: &'args VectorClockArgs<'args>,
+            ) -> ::flatbuffers::WIPOffset<VectorClock<'bldr>> {
+                let mut builder = VectorClockBuilder::new(_fbb);
+                if let Some(x) = args.entries {
+                    builder.add_entries(x);
+                }
+                builder.finish()
+            }
+
+            #[inline]
+            pub fn entries(
+                &self,
+            ) -> Option<
+                ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<VectorClockEntry<'a>>>,
+            > {
+                // Safety:
+                // Created from valid Table for this object
+                // which contains a valid value in this slot
+                unsafe {
+                    self._tab.get::<::flatbuffers::ForwardsUOffset<
+                        ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<VectorClockEntry>>,
+                    >>(VectorClock::VT_ENTRIES, None)
+                }
+            }
+        }
+
+        impl ::flatbuffers::Verifiable for VectorClock<'_> {
+            #[inline]
+            fn run_verifier(
+                v: &mut ::flatbuffers::Verifier,
+                pos: usize,
+            ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+                v.visit_table(pos)?
+                    .visit_field::<::flatbuffers::ForwardsUOffset<
+                        ::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<VectorClockEntry>>,
+                    >>("entries", Self::VT_ENTRIES, false)?
+                    .finish();
+                Ok(())
+            }
+        }
+        pub struct VectorClockArgs<'a> {
+            pub entries: Option<
+                ::flatbuffers::WIPOffset<
+                    ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<VectorClockEntry<'a>>>,
+                >,
+            >,
+        }
+        impl<'a> Default for VectorClockArgs<'a> {
+            #[inline]
+            fn default() -> Self {
+                VectorClockArgs { entries: None }
+            }
+        }
+
+        pub struct VectorClockBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+            fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+            start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+        }
+        impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> VectorClockBuilder<'a, 'b, A> {
+            #[inline]
+            pub fn add_entries(
+                &mut self,
+                entries: ::flatbuffers::WIPOffset<
+                    ::flatbuffers::Vector<'b, ::flatbuffers::ForwardsUOffset<VectorClockEntry<'b>>>,
+                >,
+            ) {
+                self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(
+                    VectorClock::VT_ENTRIES,
+                    entries,
+                );
+            }
+            #[inline]
+            pub fn new(
+                _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+            ) -> VectorClockBuilder<'a, 'b, A> {
+                let start = _fbb.start_table();
+                VectorClockBuilder {
+                    fbb_: _fbb,
+                    start_: start,
+                }
+            }
+            #[inline]
+            pub fn finish(self) -> ::flatbuffers::WIPOffset<VectorClock<'a>> {
+                let o = self.fbb_.end_table(self.start_);
+                ::flatbuffers::WIPOffset::new(o.value())
+            }
+        }
+
+        impl ::core::fmt::Debug for VectorClock<'_> {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                let mut ds = f.debug_struct("VectorClock");
+                ds.field("entries", &self.entries());
+                ds.finish()
+            }
+        }
         pub enum EntryOffset {}
         #[derive(Copy, Clone, PartialEq)]
 
@@ -595,6 +854,7 @@ pub mod isotime {
             pub const VT_KEY: ::flatbuffers::VOffsetT = 4;
             pub const VT_VALUE_TYPE: ::flatbuffers::VOffsetT = 6;
             pub const VT_VALUE: ::flatbuffers::VOffsetT = 8;
+            pub const VT_CLOCK: ::flatbuffers::VOffsetT = 10;
 
             #[inline]
             pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -611,6 +871,9 @@ pub mod isotime {
                 args: &'args EntryArgs<'args>,
             ) -> ::flatbuffers::WIPOffset<Entry<'bldr>> {
                 let mut builder = EntryBuilder::new(_fbb);
+                if let Some(x) = args.clock {
+                    builder.add_clock(x);
+                }
                 if let Some(x) = args.value {
                     builder.add_value(x);
                 }
@@ -656,6 +919,16 @@ pub mod isotime {
                             Entry::VT_VALUE,
                             None,
                         )
+                }
+            }
+            #[inline]
+            pub fn clock(&self) -> Option<VectorClock<'a>> {
+                // Safety:
+                // Created from valid Table for this object
+                // which contains a valid value in this slot
+                unsafe {
+                    self._tab
+                        .get::<::flatbuffers::ForwardsUOffset<VectorClock>>(Entry::VT_CLOCK, None)
                 }
             }
             #[inline]
@@ -741,6 +1014,11 @@ pub mod isotime {
                             _ => Ok(()),
                         },
                     )?
+                    .visit_field::<::flatbuffers::ForwardsUOffset<VectorClock>>(
+                        "clock",
+                        Self::VT_CLOCK,
+                        false,
+                    )?
                     .finish();
                 Ok(())
             }
@@ -749,6 +1027,7 @@ pub mod isotime {
             pub key: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u8>>>,
             pub value_type: ValueType,
             pub value: Option<::flatbuffers::WIPOffset<::flatbuffers::UnionWIPOffset>>,
+            pub clock: Option<::flatbuffers::WIPOffset<VectorClock<'a>>>,
         }
         impl<'a> Default for EntryArgs<'a> {
             #[inline]
@@ -757,6 +1036,7 @@ pub mod isotime {
                     key: None,
                     value_type: ValueType::NONE,
                     value: None,
+                    clock: None,
                 }
             }
         }
@@ -786,6 +1066,14 @@ pub mod isotime {
             ) {
                 self.fbb_
                     .push_slot_always::<::flatbuffers::WIPOffset<_>>(Entry::VT_VALUE, value);
+            }
+            #[inline]
+            pub fn add_clock(&mut self, clock: ::flatbuffers::WIPOffset<VectorClock<'b>>) {
+                self.fbb_
+                    .push_slot_always::<::flatbuffers::WIPOffset<VectorClock>>(
+                        Entry::VT_CLOCK,
+                        clock,
+                    );
             }
             #[inline]
             pub fn new(
@@ -845,6 +1133,7 @@ pub mod isotime {
                         ds.field("value", &x)
                     }
                 };
+                ds.field("clock", &self.clock());
                 ds.finish()
             }
         }

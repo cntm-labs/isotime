@@ -72,10 +72,7 @@ pub unsafe extern "C" fn isotime_open(
     ));
 
     match engine_res {
-        Ok(engine) => Box::into_raw(Box::new(FfiEngine {
-            engine,
-            runtime: rt,
-        })) as *mut c_void,
+        Ok(engine) => Box::into_raw(Box::new(FfiEngine { engine, runtime: rt })) as *mut c_void,
         Err(_) => ptr::null_mut(),
     }
 }
@@ -162,10 +159,12 @@ mod tests {
 
         let ffi = unsafe { &*(engine_ptr as *mut FfiEngine) };
         ffi.runtime
-            .block_on(
-                ffi.engine
-                    .put(b"ffi_key".to_vec(), b"ffi_value".to_vec(), vec![]),
-            )
+            .block_on(ffi.engine.put(
+                b"ffi_key".to_vec(),
+                b"ffi_value".to_vec(),
+                vec![],
+                vec![],
+            ))
             .unwrap();
 
         let key = b"ffi_key";
