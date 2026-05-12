@@ -17,9 +17,19 @@ table HashValue {
 
 union ValueType { RawValue, RefValue, HashValue }
 
+table VectorClockEntry {
+  node_id: uint32;
+  counter: uint64;
+}
+
+table VectorClock {
+  entries: [VectorClockEntry];
+}
+
 table Entry {
   key: [ubyte];
   value: ValueType;
+  clock: VectorClock;
 }
 
 table TagKey {

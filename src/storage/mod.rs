@@ -5,6 +5,7 @@ pub mod compaction;
 pub mod compressor;
 pub mod dashboard;
 pub mod encryption;
+pub mod io_pool;
 pub mod memtable;
 pub mod sstable;
 pub mod tiering;
@@ -16,6 +17,7 @@ use crate::storage::compaction::Compactor;
 use crate::storage::compressor::CompressionPolicy;
 use crate::storage::dashboard::DashboardServer;
 use crate::storage::encryption::EncryptionManager;
+use crate::storage::io_pool::IoPool;
 use crate::storage::memtable::MemTable;
 use crate::storage::sstable::SSTable;
 use crate::storage::tiering::{CapacityManager, SSTableMetadata, StorageTier};
@@ -38,6 +40,7 @@ pub struct StorageEngine {
     pub hot_dir: PathBuf,
     pub cold_dir: PathBuf,
     pub dashboard_tx: broadcast::Sender<String>,
+    pub io_pool: Arc<IoPool>,
 }
 
 impl StorageEngine {
@@ -52,18 +55,19 @@ impl StorageEngine {
         let memtable = MemTable::new();
         for entry in entries {
             match entry {
-                WalOp::Put(key, value, tags) => memtable.insert(key, value, tags),
-                WalOp::Delete(key) => memtable.insert(key, vec![], vec![]), // Recover as Tombstone
+                WalOp::Put(key, value, tags, clock) => memtable.insert(key, value, tags, clock),
+                WalOp::Delete(key) => memtable.insert(key, vec![], vec![], vec![]), // Recover as Tombstone
             }
         }
 
         let cas = Arc::new(CASManager::new(cas_root, encryption.clone())?);
         let metadatas = Arc::new(Mutex::new(Vec::new()));
         let (dashboard_tx, _) = broadcast::channel(1024);
+        let io_pool = IoPool::new(1024);
 
         Ok(Self {
             memtable: Arc::new(memtable),
-            wal: Arc::new(wal),
+            wal,
             encryption,
             policy,
             cas,
@@ -71,6 +75,7 @@ impl StorageEngine {
             hot_dir: PathBuf::from("."),
             cold_dir: PathBuf::from("./cold"),
             dashboard_tx,
+            io_pool,
         })
     }
 
@@ -123,6 +128,7 @@ impl StorageEngine {
                     self.encryption.as_deref(),
                     policy,
                     Some(&self.cas),
+                    &self.io_pool,
                 )
                 .await
                 {
@@ -185,9 +191,17 @@ impl StorageEngine {
         Ok(())
     }
 
-    pub async fn put(&self, key: Vec<u8>, value: Vec<u8>, tags: Vec<String>) -> io::Result<()> {
-        self.wal.append(&key, &value, tags.clone()).await?;
-        self.memtable.insert(key, value, tags);
+    pub async fn put(
+        &self,
+        key: Vec<u8>,
+        value: Vec<u8>,
+        tags: Vec<String>,
+        clock: Vec<(u32, u64)>,
+    ) -> io::Result<()> {
+        self.wal
+            .append(&key, &value, tags.clone(), clock.clone())
+            .await?;
+        self.memtable.insert(key, value, tags, clock);
 
         // In a real system we might debounce this
         self.broadcast_to_dashboard(json!({
@@ -229,7 +243,7 @@ impl StorageEngine {
                 continue;
             }
 
-            let sstable = SSTable::open(&meta.path, self.encryption.as_deref()).await?;
+            let sstable = SSTable::open(&meta.path, self.encryption.as_deref(), &self.io_pool).await?;
             if let Some(val) = sstable.get(key, Some(&self.cas)).await? {
                 if val.is_empty() {
                     return Ok(None); // Tombstone found in SSTable
@@ -256,7 +270,7 @@ impl StorageEngine {
         };
 
         for meta in metas {
-            let sstable = SSTable::open(&meta.path, self.encryption.as_deref()).await?;
+            let sstable = SSTable::open(&meta.path, self.encryption.as_deref(), &self.io_pool).await?;
             for key in sstable.get_by_tag(tag).await? {
                 keys.insert(key);
             }
@@ -294,7 +308,7 @@ impl StorageEngine {
         };
 
         for meta in metas {
-            let sstable = SSTable::open(&meta.path, self.encryption.as_deref()).await?;
+            let sstable = SSTable::open(&meta.path, self.encryption.as_deref(), &self.io_pool).await?;
             let entries = sstable
                 .get_range(start_key, end_key, Some(&self.cas))
                 .await?;
@@ -305,7 +319,7 @@ impl StorageEngine {
 
         // 2. Get from MemTable (Newest)
         let mem_entries = self.memtable.get_range(start_key, end_key);
-        for (k, v) in mem_entries {
+        for (k, (v, _clock)) in mem_entries {
             merged.insert(k, v);
         }
 
@@ -324,7 +338,7 @@ impl StorageEngine {
         };
 
         for meta in metas {
-            let sstable = SSTable::open(&meta.path, self.encryption.as_deref()).await?;
+            let sstable = SSTable::open(&meta.path, self.encryption.as_deref(), &self.io_pool).await?;
             let refs = sstable.get_cas_references()?;
             for r in refs {
                 active_hashes.insert(r);
@@ -344,7 +358,7 @@ impl StorageEngine {
 
     pub async fn delete(&self, key: &[u8]) -> io::Result<()> {
         self.wal.delete(key).await?;
-        self.memtable.insert(key.to_vec(), vec![], vec![]); // Insert empty vec as Tombstone
+        self.memtable.insert(key.to_vec(), vec![], vec![], vec![]); // Insert empty vec as Tombstone
         Ok(())
     }
 
@@ -357,6 +371,7 @@ impl StorageEngine {
             self.encryption.as_deref(),
             self.policy,
             Some(&self.cas),
+            &self.io_pool,
         )
         .await?;
 
@@ -399,7 +414,7 @@ impl StorageEngine {
             value.extend_from_slice(&event.timestamp.to_le_bytes());
             value.extend_from_slice(&event.payload);
 
-            self.put(key, value, vec![]).await?;
+            self.put(key, value, vec![], vec![]).await?;
         }
 
         Ok(count)
@@ -436,7 +451,7 @@ mod tests {
             for i in 0..3 {
                 let path = format!("test_l0_{}.sst", i);
                 let mut data = BTreeMap::new();
-                data.insert(format!("key{}", i).into_bytes(), b"val".to_vec());
+                data.insert(format!("key{}", i).into_bytes(), (b"val".to_vec(), vec![]));
                 SSTable::write(
                     Path::new(&path),
                     data,
@@ -444,6 +459,7 @@ mod tests {
                     None,
                     CompressionPolicy::Balanced,
                     None,
+                    &engine.io_pool,
                 )
                 .await
                 .unwrap();
@@ -488,7 +504,7 @@ mod tests {
                     .await
                     .unwrap();
             engine
-                .put(b"key1".to_vec(), b"value1".to_vec(), vec![])
+                .put(b"key1".to_vec(), b"value1".to_vec(), vec![], vec![])
                 .await
                 .unwrap();
             assert_eq!(engine.get(b"key1").await.unwrap(), Some(b"value1".to_vec()));
@@ -517,6 +533,7 @@ mod tests {
                     b"key1".to_vec(),
                     b"v1".to_vec(),
                     vec!["sensor1".to_string()],
+                    vec![],
                 )
                 .await
                 .unwrap();
@@ -525,6 +542,7 @@ mod tests {
                     b"key2".to_vec(),
                     b"v2".to_vec(),
                     vec!["sensor1".to_string()],
+                    vec![],
                 )
                 .await
                 .unwrap();
@@ -533,6 +551,7 @@ mod tests {
                     b"key3".to_vec(),
                     b"v3".to_vec(),
                     vec!["sensor2".to_string()],
+                    vec![],
                 )
                 .await
                 .unwrap();
@@ -563,11 +582,11 @@ mod tests {
                         .await
                         .unwrap();
                 engine
-                    .put(b"key1".to_vec(), b"value1".to_vec(), vec![])
+                    .put(b"key1".to_vec(), b"value1".to_vec(), vec![], vec![])
                     .await
                     .unwrap();
                 engine
-                    .put(b"key2".to_vec(), b"value2".to_vec(), vec![])
+                    .put(b"key2".to_vec(), b"value2".to_vec(), vec![], vec![])
                     .await
                     .unwrap();
                 engine.delete(b"key1").await.unwrap();
@@ -610,7 +629,7 @@ mod tests {
                     for j in 0..num_inserts {
                         let key = format!("thread-{}-key-{}", i, j).into_bytes();
                         let value = format!("value-{}", j).into_bytes();
-                        eng.put(key, value, vec![]).await.unwrap();
+                        eng.put(key, value, vec![], vec![]).await.unwrap();
                     }
                 }));
             }
@@ -649,12 +668,12 @@ mod tests {
                     .await
                     .unwrap();
             engine
-                .put(b"k1".to_vec(), b"v1".to_vec(), vec![])
+                .put(b"k1".to_vec(), b"v1".to_vec(), vec![], vec![])
                 .await
                 .unwrap();
             engine.flush(sst_path).await.unwrap();
 
-            let sstable = SSTable::open(Path::new(sst_path), None).await.unwrap();
+            let sstable = SSTable::open(Path::new(sst_path), None, &engine.io_pool).await.unwrap();
             assert_eq!(
                 sstable.get(b"k1", Some(&engine.cas)).await.unwrap(),
                 Some(b"v1".to_vec())
@@ -734,7 +753,12 @@ mod tests {
             .await
             .unwrap();
             engine
-                .put(b"secure_key".to_vec(), b"secure_value".to_vec(), vec![])
+                .put(
+                    b"secure_key".to_vec(),
+                    b"secure_value".to_vec(),
+                    vec![],
+                    vec![],
+                )
                 .await
                 .unwrap();
             engine.flush(sst_path).await.unwrap();
@@ -748,7 +772,7 @@ mod tests {
             )
             .await
             .unwrap();
-            let sstable = SSTable::open(Path::new(sst_path), engine2.encryption.as_deref())
+            let sstable = SSTable::open(Path::new(sst_path), engine2.encryption.as_deref(), &engine2.io_pool)
                 .await
                 .unwrap();
             assert_eq!(
@@ -770,7 +794,7 @@ mod tests {
             .await
             .unwrap();
             assert!(
-                SSTable::open(Path::new(sst_path), engine3.encryption.as_deref())
+                SSTable::open(Path::new(sst_path), engine3.encryption.as_deref(), &engine3.io_pool)
                     .await
                     .is_err()
             );
@@ -802,7 +826,7 @@ mod tests {
 
             // Put and flush
             engine
-                .put(b"k1".to_vec(), b"v1".to_vec(), vec![])
+                .put(b"k1".to_vec(), b"v1".to_vec(), vec![], vec![])
                 .await
                 .unwrap();
             engine.flush(sst_path).await.unwrap();
@@ -877,15 +901,15 @@ mod tests {
                     .unwrap();
 
             engine
-                .put(b"k1".to_vec(), b"v1".to_vec(), vec![])
+                .put(b"k1".to_vec(), b"v1".to_vec(), vec![], vec![])
                 .await
                 .unwrap();
             engine
-                .put(b"k2".to_vec(), b"v2".to_vec(), vec![])
+                .put(b"k2".to_vec(), b"v2".to_vec(), vec![], vec![])
                 .await
                 .unwrap();
             engine
-                .put(b"k3".to_vec(), b"v3".to_vec(), vec![])
+                .put(b"k3".to_vec(), b"v3".to_vec(), vec![], vec![])
                 .await
                 .unwrap();
 
@@ -894,7 +918,7 @@ mod tests {
 
             // Override k2, Delete k3
             engine
-                .put(b"k2".to_vec(), b"v2_new".to_vec(), vec![])
+                .put(b"k2".to_vec(), b"v2_new".to_vec(), vec![], vec![])
                 .await
                 .unwrap();
             engine.delete(b"k3").await.unwrap();
@@ -920,18 +944,14 @@ mod tests {
                 let _ = fs::remove_file(wal_path);
             }
 
-            let engine = StorageEngine::new(
-                wal_path,
-                None,
-                CompressionPolicy::ExtremeSpace,
-                cas_dir.path(),
-            )
-            .await
-            .unwrap();
+            let engine =
+                StorageEngine::new(wal_path, None, CompressionPolicy::ExtremeSpace, cas_dir.path())
+                    .await
+                    .unwrap();
 
             // Insert data and flush (creates CAS objects)
             engine
-                .put(b"k1".to_vec(), b"v1".to_vec(), vec![])
+                .put(b"k1".to_vec(), b"v1".to_vec(), vec![], vec![])
                 .await
                 .unwrap();
             engine.flush("test_gc_1.sst").await.unwrap();
@@ -948,6 +968,7 @@ mod tests {
                 None,
                 CompressionPolicy::ExtremeSpace,
                 Some(&engine.cas),
+                &engine.io_pool,
             )
             .await
             .unwrap();
