@@ -329,10 +329,8 @@ impl SSTable {
                 })?;
                 let mut hash = [0u8; 32];
                 hash.copy_from_slice(hash_bytes.bytes());
-
-                let cas_manager = cas.ok_or_else(|| {
-                    io::Error::other("Global CAS manager required for HashValue")
-                })?;
+                let cas_manager = cas
+                    .ok_or_else(|| io::Error::other("Global CAS manager required for HashValue"))?;
 
                 cas_manager.get(&hash).await.map(|v| v.unwrap_or_default())
             }
