@@ -293,9 +293,16 @@ mod tests {
             ];
 
             // Compact all
-            Compactor::compact(&metas, &final_path, None, CompressionPolicy::Balanced, None, &io_pool)
-                .await
-                .unwrap();
+            Compactor::compact(
+                &metas,
+                &final_path,
+                None,
+                CompressionPolicy::Balanced,
+                None,
+                &io_pool,
+            )
+            .await
+            .unwrap();
 
             // Verify
             let result = SSTable::open(&final_path, None, &io_pool).await.unwrap();

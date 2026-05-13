@@ -243,7 +243,8 @@ impl StorageEngine {
                 continue;
             }
 
-            let sstable = SSTable::open(&meta.path, self.encryption.as_deref(), &self.io_pool).await?;
+            let sstable =
+                SSTable::open(&meta.path, self.encryption.as_deref(), &self.io_pool).await?;
             if let Some(val) = sstable.get(key, Some(&self.cas)).await? {
                 if val.is_empty() {
                     return Ok(None); // Tombstone found in SSTable
@@ -270,7 +271,8 @@ impl StorageEngine {
         };
 
         for meta in metas {
-            let sstable = SSTable::open(&meta.path, self.encryption.as_deref(), &self.io_pool).await?;
+            let sstable =
+                SSTable::open(&meta.path, self.encryption.as_deref(), &self.io_pool).await?;
             for key in sstable.get_by_tag(tag).await? {
                 keys.insert(key);
             }
@@ -308,7 +310,8 @@ impl StorageEngine {
         };
 
         for meta in metas {
-            let sstable = SSTable::open(&meta.path, self.encryption.as_deref(), &self.io_pool).await?;
+            let sstable =
+                SSTable::open(&meta.path, self.encryption.as_deref(), &self.io_pool).await?;
             let entries = sstable
                 .get_range(start_key, end_key, Some(&self.cas))
                 .await?;
@@ -338,7 +341,8 @@ impl StorageEngine {
         };
 
         for meta in metas {
-            let sstable = SSTable::open(&meta.path, self.encryption.as_deref(), &self.io_pool).await?;
+            let sstable =
+                SSTable::open(&meta.path, self.encryption.as_deref(), &self.io_pool).await?;
             let refs = sstable.get_cas_references()?;
             for r in refs {
                 active_hashes.insert(r);
@@ -673,7 +677,9 @@ mod tests {
                 .unwrap();
             engine.flush(sst_path).await.unwrap();
 
-            let sstable = SSTable::open(Path::new(sst_path), None, &engine.io_pool).await.unwrap();
+            let sstable = SSTable::open(Path::new(sst_path), None, &engine.io_pool)
+                .await
+                .unwrap();
             assert_eq!(
                 sstable.get(b"k1", Some(&engine.cas)).await.unwrap(),
                 Some(b"v1".to_vec())
@@ -772,9 +778,13 @@ mod tests {
             )
             .await
             .unwrap();
-            let sstable = SSTable::open(Path::new(sst_path), engine2.encryption.as_deref(), &engine2.io_pool)
-                .await
-                .unwrap();
+            let sstable = SSTable::open(
+                Path::new(sst_path),
+                engine2.encryption.as_deref(),
+                &engine2.io_pool,
+            )
+            .await
+            .unwrap();
             assert_eq!(
                 sstable
                     .get(b"secure_key", Some(&engine2.cas))
@@ -793,11 +803,13 @@ mod tests {
             )
             .await
             .unwrap();
-            assert!(
-                SSTable::open(Path::new(sst_path), engine3.encryption.as_deref(), &engine3.io_pool)
-                    .await
-                    .is_err()
-            );
+            assert!(SSTable::open(
+                Path::new(sst_path),
+                engine3.encryption.as_deref(),
+                &engine3.io_pool
+            )
+            .await
+            .is_err());
 
             let _ = fs::remove_file(wal_path);
             let _ = fs::remove_file(sst_path);
@@ -944,10 +956,14 @@ mod tests {
                 let _ = fs::remove_file(wal_path);
             }
 
-            let engine =
-                StorageEngine::new(wal_path, None, CompressionPolicy::ExtremeSpace, cas_dir.path())
-                    .await
-                    .unwrap();
+            let engine = StorageEngine::new(
+                wal_path,
+                None,
+                CompressionPolicy::ExtremeSpace,
+                cas_dir.path(),
+            )
+            .await
+            .unwrap();
 
             // Insert data and flush (creates CAS objects)
             engine

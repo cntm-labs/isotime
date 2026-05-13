@@ -3,6 +3,7 @@ use dashmap::DashMap;
 use std::sync::Arc;
 
 pub struct MemTable {
+    #[allow(clippy::type_complexity)]
     map: Arc<SkipMap<Vec<u8>, (Vec<u8>, Vec<(u32, u64)>)>>,
     tag_index: Arc<DashMap<String, Vec<Vec<u8>>>>,
 }
@@ -26,6 +27,7 @@ impl MemTable {
         self.map.get(key).map(|entry| entry.value().0.clone())
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn get_with_clock(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<(u32, u64)>)> {
         self.map.get(key).map(|entry| entry.value().clone())
     }
@@ -64,6 +66,7 @@ impl MemTable {
         (snapshot, tags)
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn get_range(
         &self,
         start_key: &[u8],

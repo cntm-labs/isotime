@@ -1,5 +1,4 @@
 use std::io;
-use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
@@ -32,11 +31,21 @@ impl IoPool {
             tokio_uring::start(async move {
                 while let Some(req) = rx.recv().await {
                     match req {
-                        IoRequest::Read { path, offset, len, reply } => {
+                        IoRequest::Read {
+                            path,
+                            offset,
+                            len,
+                            reply,
+                        } => {
                             let res = Self::handle_read(path, offset, len).await;
                             let _ = reply.send(res);
                         }
-                        IoRequest::Write { path, offset, data, reply } => {
+                        IoRequest::Write {
+                            path,
+                            offset,
+                            data,
+                            reply,
+                        } => {
                             let res = Self::handle_write(path, offset, data).await;
                             let _ = reply.send(res);
                         }
@@ -77,8 +86,9 @@ impl IoPool {
                 reply: tx,
             })
             .await
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "IO Pool worker died"))?;
-        rx.await.map_err(|_| io::Error::new(io::ErrorKind::Other, "IO Pool reply dropped"))?
+            .map_err(|_| io::Error::other("IO Pool worker died"))?;
+        rx.await
+            .map_err(|_| io::Error::other("IO Pool reply dropped"))?
     }
 
     pub async fn write(&self, path: &Path, offset: u64, data: Vec<u8>) -> io::Result<()> {
@@ -91,7 +101,8 @@ impl IoPool {
                 reply: tx,
             })
             .await
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "IO Pool worker died"))?;
-        rx.await.map_err(|_| io::Error::new(io::ErrorKind::Other, "IO Pool reply dropped"))?
+            .map_err(|_| io::Error::other("IO Pool worker died"))?;
+        rx.await
+            .map_err(|_| io::Error::other("IO Pool reply dropped"))?
     }
 }

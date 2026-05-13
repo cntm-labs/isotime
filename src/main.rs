@@ -36,19 +36,14 @@ async fn main() -> io::Result<()> {
                 data.insert(key, (val, vec![]));
             }
 
-            SSTable::write(
-                path,
-                data,
-                BTreeMap::new(),
-                None,
-                policy,
-                None,
-                &io_pool,
-            )
-            .await?;
+            SSTable::write(path, data, BTreeMap::new(), None, policy, None, &io_pool).await?;
 
             let size = std::fs::metadata(path)?.len();
-            println!("Policy: {:<12} | SSTable Size: {:>6} bytes", format!("{:?}", policy), size);
+            println!(
+                "Policy: {:<12} | SSTable Size: {:>6} bytes",
+                format!("{:?}", policy),
+                size
+            );
             let _ = std::fs::remove_file(path);
         }
 
@@ -109,7 +104,7 @@ async fn main() -> io::Result<()> {
         // --- Demo 4: Global CAS ---
         println!("\n--- Demo 4: Global CAS ---");
         let global_val = vec![0xCC; 2048]; // 2KB value
-        
+
         // Write to SSTable 1
         engine
             .put(
@@ -132,9 +127,18 @@ async fn main() -> io::Result<()> {
             .await?;
         engine.flush("cas2.sst").await?;
 
-        println!("SSTable 1 size: {} bytes", std::fs::metadata("cas1.sst")?.len());
-        println!("SSTable 2 size: {} bytes", std::fs::metadata("cas2.sst")?.len());
-        println!("Global CAS objects count: {}", std::fs::read_dir(cas_root)?.count());
+        println!(
+            "SSTable 1 size: {} bytes",
+            std::fs::metadata("cas1.sst")?.len()
+        );
+        println!(
+            "SSTable 2 size: {} bytes",
+            std::fs::metadata("cas2.sst")?.len()
+        );
+        println!(
+            "Global CAS objects count: {}",
+            std::fs::read_dir(cas_root)?.count()
+        );
 
         // --- Demo 5: Tag Indexing ---
         println!("\n--- Demo 5: Tag Indexing ---");
@@ -157,8 +161,13 @@ async fn main() -> io::Result<()> {
             &engine.io_pool,
         )
         .await?;
-        
-        let final_sst = SSTable::open(Path::new("final.db"), engine.encryption.as_deref(), &engine.io_pool).await?;
+
+        let final_sst = SSTable::open(
+            Path::new("final.db"),
+            engine.encryption.as_deref(),
+            &engine.io_pool,
+        )
+        .await?;
         let all = final_sst.all_entries(Some(&engine.cas)).await?;
         println!("Final SSTable entry count: {}", all.len());
 
@@ -168,12 +177,15 @@ async fn main() -> io::Result<()> {
         for m in metas {
             let _ = std::fs::remove_file(m.path);
         }
-        
+
         let deleted = engine.run_cas_gc().await?;
         println!("CAS GC deleted {} orphaned objects.", deleted);
 
-        println!("Size of final.db: {} bytes", std::fs::metadata("final.db")?.len());
-        
+        println!(
+            "Size of final.db: {} bytes",
+            std::fs::metadata("final.db")?.len()
+        );
+
         // Show nonce for proof of encryption
         let raw_bytes = std::fs::read("final.db")?;
         println!("First 12 bytes (Nonce): {:?}", &raw_bytes[..12]);
@@ -188,11 +200,13 @@ async fn main() -> io::Result<()> {
         )
         .await?;
 
-        assert!(
-            SSTable::open(Path::new("final.db"), engine_wrong.encryption.as_deref(), &engine_wrong.io_pool)
-                .await
-                .is_err()
-        );
+        assert!(SSTable::open(
+            Path::new("final.db"),
+            engine_wrong.encryption.as_deref(),
+            &engine_wrong.io_pool
+        )
+        .await
+        .is_err());
         println!("Encryption verified: Failed to open with incorrect key.");
 
         // Clean up

@@ -172,7 +172,7 @@ mod tests {
 
         let files: Vec<_> = std::fs::read_dir(dir.path()).unwrap().collect();
         assert_eq!(files.len(), 1);
-        
+
         let counts = cas.ref_counts.read().await;
         assert_eq!(*counts.get(&hash1).unwrap(), 2);
     }
@@ -186,11 +186,11 @@ mod tests {
         let _hash2 = cas.put(b"data2").await.unwrap();
 
         cas.deregister_ref(hash1).await; // count: 1 (one from put, one from deregister? wait, put registers 1)
-        // Correct logic:
-        // put registers 1. 
-        // calling it again registers another 1.
-        // So for _hash2, count is 1.
-        // For hash1, count was 1, deregister makes it 0 (removes it).
+                                         // Correct logic:
+                                         // put registers 1.
+                                         // calling it again registers another 1.
+                                         // So for _hash2, count is 1.
+                                         // For hash1, count was 1, deregister makes it 0 (removes it).
 
         let deleted = cas.gc_optimized().await.unwrap();
         assert_eq!(deleted, 1); // data1 should be deleted

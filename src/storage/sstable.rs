@@ -19,6 +19,7 @@ pub struct SSTable {
 }
 
 impl SSTable {
+    #[allow(clippy::type_complexity)]
     pub async fn write(
         path: &Path,
         data: BTreeMap<Vec<u8>, (Vec<u8>, Vec<(u32, u64)>)>,
@@ -117,13 +118,19 @@ impl SSTable {
             let mut keys_offsets = Vec::new();
             for k in keys {
                 let k_vec = fbb.create_vector(&k);
-                keys_offsets.push(fbs::TagKey::create(&mut fbb, &fbs::TagKeyArgs { key: Some(k_vec) }));
+                keys_offsets.push(fbs::TagKey::create(
+                    &mut fbb,
+                    &fbs::TagKeyArgs { key: Some(k_vec) },
+                ));
             }
             let keys_vec = fbb.create_vector(&keys_offsets);
-            tag_indexes.push(fbs::TagIndex::create(&mut fbb, &fbs::TagIndexArgs {
-                tag: Some(tag_str),
-                keys: Some(keys_vec),
-            }));
+            tag_indexes.push(fbs::TagIndex::create(
+                &mut fbb,
+                &fbs::TagIndexArgs {
+                    tag: Some(tag_str),
+                    keys: Some(keys_vec),
+                },
+            ));
         }
         let tag_indexes_vec = fbb.create_vector(&tag_indexes);
 
@@ -154,7 +161,11 @@ impl SSTable {
         Ok(())
     }
 
-    pub async fn open(path: &Path, enc: Option<&EncryptionManager>, io_pool: &IoPool) -> io::Result<Self> {
+    pub async fn open(
+        path: &Path,
+        enc: Option<&EncryptionManager>,
+        io_pool: &IoPool,
+    ) -> io::Result<Self> {
         // We need to know the size to read via io_uring.
         // In a production engine we'd have a footer or fixed size header.
         // For now we use standard metadata to get size then read_at.
@@ -167,11 +178,13 @@ impl SSTable {
 
         let bloom_filter = {
             let data = fbs::root_as_sstable_data(&buffer).map_err(|e| {
-                io::Error::new(io::ErrorKind::InvalidData, format!("FlatBuffer error: {}", e))
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("FlatBuffer error: {}", e),
+                )
             })?;
-            data.bloom_filter().map(|b| {
-                BloomFilter::from_vec(b.bytes().to_vec(), data.num_hashes() as usize)
-            })
+            data.bloom_filter()
+                .map(|b| BloomFilter::from_vec(b.bytes().to_vec(), data.num_hashes() as usize))
         };
 
         Ok(Self {
@@ -188,12 +201,15 @@ impl SSTable {
         }
 
         let data = fbs::root_as_sstable_data(&self.buffer).map_err(|e| {
-            io::Error::new(io::ErrorKind::InvalidData, format!("FlatBuffer error: {}", e))
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("FlatBuffer error: {}", e),
+            )
         })?;
 
-        let entries = data.entries().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, "SSTable missing entries")
-        })?;
+        let entries = data
+            .entries()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "SSTable missing entries"))?;
 
         // Binary search
         let mut low = 0;
@@ -202,9 +218,9 @@ impl SSTable {
         while low < high {
             let mid = low + (high - low) / 2;
             let entry = entries.get(mid);
-            let entry_key = entry.key().ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidData, "Entry missing key")
-            })?;
+            let entry_key = entry
+                .key()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Entry missing key"))?;
 
             match key.cmp(entry_key.bytes()) {
                 std::cmp::Ordering::Equal => {
@@ -218,7 +234,11 @@ impl SSTable {
         Ok(None)
     }
 
-    pub async fn get_with_clock(&self, key: &[u8], cas: Option<&CASManager>) -> io::Result<Option<(Vec<u8>, Vec<(u32, u64)>)>> {
+    pub async fn get_with_clock(
+        &self,
+        key: &[u8],
+        cas: Option<&CASManager>,
+    ) -> io::Result<Option<(Vec<u8>, Vec<(u32, u64)>)>> {
         if let Some(ref bloom) = self.bloom_filter {
             if !bloom.contains(key) {
                 return Ok(None);
@@ -226,12 +246,15 @@ impl SSTable {
         }
 
         let data = fbs::root_as_sstable_data(&self.buffer).map_err(|e| {
-            io::Error::new(io::ErrorKind::InvalidData, format!("FlatBuffer error: {}", e))
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("FlatBuffer error: {}", e),
+            )
         })?;
 
-        let entries = data.entries().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, "SSTable missing entries")
-        })?;
+        let entries = data
+            .entries()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "SSTable missing entries"))?;
 
         // Binary search
         let mut low = 0;
@@ -240,9 +263,9 @@ impl SSTable {
         while low < high {
             let mid = low + (high - low) / 2;
             let entry = entries.get(mid);
-            let entry_key = entry.key().ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidData, "Entry missing key")
-            })?;
+            let entry_key = entry
+                .key()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Entry missing key"))?;
 
             match key.cmp(entry_key.bytes()) {
                 std::cmp::Ordering::Equal => {
@@ -308,18 +331,24 @@ impl SSTable {
                 hash.copy_from_slice(hash_bytes.bytes());
 
                 let cas_manager = cas.ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::Other, "Global CAS manager required for HashValue")
+                    io::Error::other("Global CAS manager required for HashValue")
                 })?;
 
                 cas_manager.get(&hash).await.map(|v| v.unwrap_or_default())
             }
-            _ => Err(io::Error::new(io::ErrorKind::InvalidData, "Unknown value type")),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Unknown value type",
+            )),
         }
     }
 
     pub async fn get_by_tag(&self, tag: &str) -> io::Result<Vec<Vec<u8>>> {
         let data = fbs::root_as_sstable_data(&self.buffer).map_err(|e| {
-            io::Error::new(io::ErrorKind::InvalidData, format!("FlatBuffer error: {}", e))
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("FlatBuffer error: {}", e),
+            )
         })?;
 
         if let Some(tag_indexes) = data.tag_indexes() {
@@ -347,15 +376,18 @@ impl SSTable {
         cas: Option<&CASManager>,
     ) -> io::Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let data = fbs::root_as_sstable_data(&self.buffer).map_err(|e| {
-            io::Error::new(io::ErrorKind::InvalidData, format!("FlatBuffer error: {}", e))
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("FlatBuffer error: {}", e),
+            )
         })?;
 
-        let entries = data.entries().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, "SSTable missing entries")
-        })?;
+        let entries = data
+            .entries()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "SSTable missing entries"))?;
 
         let mut results = Vec::new();
-        
+
         // Find starting point via binary search
         let mut low = 0;
         let mut high = entries.len();
@@ -378,11 +410,11 @@ impl SSTable {
         for i in start_idx..entries.len() {
             let entry = entries.get(i);
             let entry_key = entry.key().unwrap();
-            
+
             if entry_key.bytes() >= end_key {
                 break;
             }
-            
+
             let val = self.resolve_value(entry, i, cas).await?;
             results.push((entry_key.bytes().to_vec(), val));
         }
@@ -390,6 +422,7 @@ impl SSTable {
         Ok(results)
     }
 
+    #[allow(clippy::type_complexity)]
     pub async fn get_range_with_clock(
         &self,
         start_key: &[u8],
@@ -397,15 +430,18 @@ impl SSTable {
         cas: Option<&CASManager>,
     ) -> io::Result<Vec<(Vec<u8>, (Vec<u8>, Vec<(u32, u64)>))>> {
         let data = fbs::root_as_sstable_data(&self.buffer).map_err(|e| {
-            io::Error::new(io::ErrorKind::InvalidData, format!("FlatBuffer error: {}", e))
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("FlatBuffer error: {}", e),
+            )
         })?;
 
-        let entries = data.entries().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, "SSTable missing entries")
-        })?;
+        let entries = data
+            .entries()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "SSTable missing entries"))?;
 
         let mut results = Vec::new();
-        
+
         // Find starting point
         let mut low = 0;
         let mut high = entries.len();
@@ -427,11 +463,11 @@ impl SSTable {
         for i in start_idx..entries.len() {
             let entry = entries.get(i);
             let entry_key = entry.key().unwrap();
-            
+
             if entry_key.bytes() >= end_key {
                 break;
             }
-            
+
             let val = self.resolve_value(entry, i, cas).await?;
             let mut clock = Vec::new();
             if let Some(vc) = entry.clock() {
@@ -449,12 +485,15 @@ impl SSTable {
 
     pub fn get_cas_references(&self) -> io::Result<Vec<[u8; 32]>> {
         let data = fbs::root_as_sstable_data(&self.buffer).map_err(|e| {
-            io::Error::new(io::ErrorKind::InvalidData, format!("FlatBuffer error: {}", e))
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("FlatBuffer error: {}", e),
+            )
         })?;
 
-        let entries = data.entries().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, "SSTable missing entries")
-        })?;
+        let entries = data
+            .entries()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "SSTable missing entries"))?;
 
         let mut refs = Vec::new();
         for i in 0..entries.len() {
@@ -476,12 +515,15 @@ impl SSTable {
         cas: Option<&CASManager>,
     ) -> io::Result<Vec<(Vec<u8>, (Vec<u8>, Vec<(u32, u64)>))>> {
         let data = fbs::root_as_sstable_data(&self.buffer).map_err(|e| {
-            io::Error::new(io::ErrorKind::InvalidData, format!("FlatBuffer error: {}", e))
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("FlatBuffer error: {}", e),
+            )
         })?;
 
-        let entries = data.entries().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, "SSTable missing entries")
-        })?;
+        let entries = data
+            .entries()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "SSTable missing entries"))?;
 
         let mut results = Vec::new();
         for i in 0..entries.len() {
@@ -516,19 +558,40 @@ mod tests {
 
         let mut data = BTreeMap::new();
         data.insert(b"key1".to_vec(), (b"value1".to_vec(), vec![(1, 10)]));
-        data.insert(b"key2".to_vec(), (b"value2".to_vec(), vec![(1, 11), (2, 5)]));
+        data.insert(
+            b"key2".to_vec(),
+            (b"value2".to_vec(), vec![(1, 11), (2, 5)]),
+        );
 
-        SSTable::write(&path, data, BTreeMap::new(), None, CompressionPolicy::Balanced, None, &io_pool)
+        SSTable::write(
+            &path,
+            data,
+            BTreeMap::new(),
+            None,
+            CompressionPolicy::Balanced,
+            None,
+            &io_pool,
+        )
+        .await
+        .expect("Failed to write SSTable");
+
+        let sstable = SSTable::open(&path, None, &io_pool)
             .await
-            .expect("Failed to write SSTable");
+            .expect("Failed to open SSTable");
 
-        let sstable = SSTable::open(&path, None, &io_pool).await.expect("Failed to open SSTable");
-
-        let (val1, clock1) = sstable.get_with_clock(b"key1", None).await.unwrap().unwrap();
+        let (val1, clock1) = sstable
+            .get_with_clock(b"key1", None)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(val1, b"value1");
         assert_eq!(clock1, vec![(1, 10)]);
 
-        let (val2, clock2) = sstable.get_with_clock(b"key2", None).await.unwrap().unwrap();
+        let (val2, clock2) = sstable
+            .get_with_clock(b"key2", None)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(val2, b"value2");
         assert_eq!(clock2, vec![(1, 11), (2, 5)]);
 
@@ -548,11 +611,21 @@ mod tests {
         let mut tags = BTreeMap::new();
         tags.insert("tag1".to_string(), vec![b"k1".to_vec(), b"k2".to_vec()]);
 
-        SSTable::write(&path, data, tags, None, CompressionPolicy::Balanced, None, &io_pool)
-            .await
-            .expect("Failed to write SSTable");
+        SSTable::write(
+            &path,
+            data,
+            tags,
+            None,
+            CompressionPolicy::Balanced,
+            None,
+            &io_pool,
+        )
+        .await
+        .expect("Failed to write SSTable");
 
-        let sstable = SSTable::open(&path, None, &io_pool).await.expect("Failed to open SSTable");
+        let sstable = SSTable::open(&path, None, &io_pool)
+            .await
+            .expect("Failed to open SSTable");
         let keys = sstable.get_by_tag("tag1").await.unwrap();
         assert_eq!(keys.len(), 2);
         assert!(keys.contains(&b"k1".to_vec()));

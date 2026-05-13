@@ -1,9 +1,8 @@
 use crate::storage::encryption::EncryptionManager;
-use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -12,15 +11,14 @@ pub enum WalOp {
     Delete(Vec<u8>),
 }
 
-#[derive(Serialize, Deserialize)]
-struct WalEntry {
-    key: Vec<u8>,
-    value: Vec<u8>,
-    tags: Vec<String>,
-}
-
 enum WalRequest {
-    Append(Vec<u8>, Vec<u8>, Vec<String>, Vec<(u32, u64)>, oneshot::Sender<io::Result<()>>),
+    Append(
+        Vec<u8>,
+        Vec<u8>,
+        Vec<String>,
+        Vec<(u32, u64)>,
+        oneshot::Sender<io::Result<()>>,
+    ),
     Delete(Vec<u8>, oneshot::Sender<io::Result<()>>),
 }
 
@@ -65,7 +63,7 @@ impl Wal {
                     1 => {
                         // Put: payload contains [key_len][key][val_len][val][tags_json][num_clock][clock...]
                         let mut payload_reader = std::io::Cursor::new(payload);
-                        
+
                         let mut k_len_buf = [0u8; 4];
                         std::io::Read::read_exact(&mut payload_reader, &mut k_len_buf)?;
                         let k_len = u32::from_le_bytes(k_len_buf) as usize;
@@ -94,11 +92,11 @@ impl Wal {
                             let mut node_id_buf = [0u8; 4];
                             std::io::Read::read_exact(&mut payload_reader, &mut node_id_buf)?;
                             let node_id = u32::from_le_bytes(node_id_buf);
-                            
+
                             let mut counter_buf = [0u8; 8];
                             std::io::Read::read_exact(&mut payload_reader, &mut counter_buf)?;
                             let counter = u64::from_le_bytes(counter_buf);
-                            
+
                             clock.push((node_id, counter));
                         }
 
@@ -210,8 +208,9 @@ impl Wal {
                 tx,
             ))
             .await
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "WAL worker died"))?;
-        rx.await.map_err(|_| io::Error::new(io::ErrorKind::Other, "WAL reply dropped"))?
+            .map_err(|_| io::Error::other("WAL worker died"))?;
+        rx.await
+            .map_err(|_| io::Error::other("WAL reply dropped"))?
     }
 
     pub async fn delete(&self, key: &[u8]) -> io::Result<()> {
@@ -219,8 +218,9 @@ impl Wal {
         self.tx
             .send(WalRequest::Delete(key.to_vec(), tx))
             .await
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "WAL worker died"))?;
-        rx.await.map_err(|_| io::Error::new(io::ErrorKind::Other, "WAL reply dropped"))?
+            .map_err(|_| io::Error::other("WAL worker died"))?;
+        rx.await
+            .map_err(|_| io::Error::other("WAL reply dropped"))?
     }
 }
 
