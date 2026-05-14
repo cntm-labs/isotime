@@ -7,6 +7,7 @@ pub mod dashboard;
 pub mod encryption;
 pub mod io_pool;
 pub mod memtable;
+pub mod query;
 pub mod sstable;
 pub mod tiering;
 pub mod wal;
@@ -19,6 +20,7 @@ use crate::storage::dashboard::DashboardServer;
 use crate::storage::encryption::EncryptionManager;
 use crate::storage::io_pool::IoPool;
 use crate::storage::memtable::MemTable;
+use crate::storage::query::QueryBuilder;
 use crate::storage::sstable::SSTable;
 use crate::storage::tiering::{CapacityManager, SSTableMetadata, StorageTier};
 use crate::storage::wal::{Wal, WalOp};
@@ -77,6 +79,10 @@ impl StorageEngine {
             dashboard_tx,
             io_pool,
         })
+    }
+
+    pub fn query(self: &Arc<Self>) -> QueryBuilder {
+        QueryBuilder::new(Arc::clone(self))
     }
 
     pub fn start_dashboard_server(&self, addr: String) {
