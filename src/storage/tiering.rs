@@ -19,6 +19,8 @@ pub struct SSTableMetadata {
     pub size_bytes: u64,
     pub min_key: Vec<u8>,
     pub max_key: Vec<u8>,
+    pub min_val: Option<f64>,
+    pub max_val: Option<f64>,
 }
 
 pub struct CapacityManager {

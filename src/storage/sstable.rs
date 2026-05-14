@@ -28,16 +28,31 @@ impl SSTable {
         policy: CompressionPolicy,
         cas: Option<&CASManager>,
         io_pool: &IoPool,
-    ) -> io::Result<()> {
+    ) -> io::Result<(Option<f64>, Option<f64>)> {
         let mut fbb = FlatBufferBuilder::new();
         let mut entries = Vec::new();
         let mut value_store = HashMap::new();
+
+        let mut min_val: Option<f64> = None;
+        let mut max_val: Option<f64> = None;
 
         // Create Bloom Filter
         let mut bloom = BloomFilter::new(data.len().max(1), 0.01);
 
         for (i, (key, (value, clock))) in data.into_iter().enumerate() {
             bloom.add(&key);
+
+            // Numeric range tracking
+            if value.len() == 8 {
+                let mut bytes = [0u8; 8];
+                bytes.copy_from_slice(&value);
+                let v = f64::from_le_bytes(bytes);
+                if !v.is_nan() {
+                    min_val = Some(min_val.map_or(v, |m| m.min(v)));
+                    max_val = Some(max_val.map_or(v, |m| m.max(v)));
+                }
+            }
+
             let key_vec = fbb.create_vector(&key);
 
             // Create Vector Clock
@@ -158,7 +173,7 @@ impl SSTable {
         // Use io_pool for kernel-level async write
         io_pool.write(path, 0, final_buffer).await?;
 
-        Ok(())
+        Ok((min_val, max_val))
     }
 
     pub async fn open(

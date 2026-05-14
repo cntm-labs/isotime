@@ -5,6 +5,7 @@ use isotime::storage::StorageEngine;
 use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -48,13 +49,15 @@ async fn main() -> io::Result<()> {
         }
 
         // Initialize storage engine with Balanced policy
-        let engine = StorageEngine::new(
-            "isotime.wal",
-            encryption_key,
-            CompressionPolicy::Balanced,
-            cas_root,
-        )
-        .await?;
+        let engine = Arc::new(
+            StorageEngine::new(
+                "isotime.wal",
+                encryption_key,
+                CompressionPolicy::Balanced,
+                cas_root,
+            )
+            .await?,
+        );
 
         // Start Dashboard WebSocket Server
         engine.start_dashboard_server("127.0.0.1:9000".to_string());
@@ -209,7 +212,69 @@ async fn main() -> io::Result<()> {
         .is_err());
         println!("Encryption verified: Failed to open with incorrect key.");
 
+        // --- Demo 8: Fluent Causal Querying ---
+        println!("\n--- Demo 8: Fluent Causal Querying ---");
+
+        // 1. Setup Data: Mixtures of SSTables and MemTable
+        // Row 1: Temperature = 22.5, Tags: ['iot', 'living-room'], Node 1 Clock 10
+        engine
+            .put(
+                b"room-living".to_vec(),
+                22.5f64.to_le_bytes().to_vec(),
+                vec!["iot".into(), "living-room".into()],
+                vec![(1, 10)],
+            )
+            .await?;
+
+        // Row 2: Temperature = 28.1, Tags: ['iot', 'kitchen'], Node 1 Clock 11 (Happened-After 10)
+        engine
+            .put(
+                b"room-kitchen".to_vec(),
+                28.1f64.to_le_bytes().to_vec(),
+                vec!["iot".into(), "kitchen".into()],
+                vec![(1, 11)],
+            )
+            .await?;
+
+        // Flush to SSTable to test pruning and cross-storage merge
+        engine.flush("demo_query.sst").await?;
+
+        // Row 3 (In MemTable): Temperature = 19.8, Tags: ['iot', 'bedroom'], Node 2 Clock 5
+        engine
+            .put(
+                b"room-bedroom".to_vec(),
+                19.8f64.to_le_bytes().to_vec(),
+                vec!["iot".into(), "bedroom".into()],
+                vec![(2, 5)],
+            )
+            .await?;
+
+        // 2. Querying
+        println!("Running Query: .tag('iot').range(20.0, 30.0)");
+        let q1 = engine.query().tag("iot").range(20.0, 30.0).execute().await;
+
+        println!(
+            "Found {} results (Expected: living-room, kitchen)",
+            q1.len()
+        );
+        for (k, v) in q1 {
+            let val = f64::from_le_bytes(v.try_into().unwrap());
+            println!("  Key: {:?}, Value: {}", String::from_utf8_lossy(&k), val);
+        }
+
+        println!("\nRunning Query: .after(vec![(1, 10)]) (Causal Consistency)");
+        let q2 = engine.query().after(vec![(1, 10)]).execute().await;
+
+        // Should only return kitchen (11 > 10).
+        // living-room (10) is NOT strictly greater than 10.
+        // bedroom (Node 2) is concurrent.
+        println!("Found {} results (Expected: kitchen)", q2.len());
+        for (k, _) in q2 {
+            println!("  Key: {:?}", String::from_utf8_lossy(&k));
+        }
+
         // Clean up
+        let _ = std::fs::remove_file("demo_query.sst");
         let _ = std::fs::remove_file("dedupe.sst");
         let _ = std::fs::remove_file("cas1.sst");
         let _ = std::fs::remove_file("cas2.sst");

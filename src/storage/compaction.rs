@@ -38,7 +38,7 @@ impl Compactor {
             max_ts = max_ts.max(meta.window_end);
         }
 
-        SSTable::write(
+        let (min_val, max_val) = SSTable::write(
             dest_path,
             merged_data.clone(),
             merged_tags,
@@ -69,6 +69,8 @@ impl Compactor {
             size_bytes,
             min_key,
             max_key,
+            min_val,
+            max_val,
         })
     }
 
@@ -116,6 +118,8 @@ mod tests {
             size_bytes: 0,
             min_key: vec![],
             max_key: vec![],
+            min_val: None,
+            max_val: None,
         }
     }
 
@@ -152,7 +156,7 @@ mod tests {
             let mut data1 = BTreeMap::new();
             data1.insert(b"key1".to_vec(), (b"v1".to_vec(), vec![]));
             data1.insert(b"key2".to_vec(), (b"v2".to_vec(), vec![]));
-            SSTable::write(
+            let _ = SSTable::write(
                 &sst1_path,
                 data1,
                 BTreeMap::new(),
@@ -168,7 +172,7 @@ mod tests {
             let mut data2 = BTreeMap::new();
             data2.insert(b"key1".to_vec(), (b"v1_new".to_vec(), vec![]));
             data2.insert(b"key3".to_vec(), (b"v3".to_vec(), vec![]));
-            SSTable::write(
+            let _ = SSTable::write(
                 &sst2_path,
                 data2,
                 BTreeMap::new(),
@@ -242,7 +246,7 @@ mod tests {
             let mut data_a = BTreeMap::new();
             data_a.insert(b"k1".to_vec(), (b"v1".to_vec(), vec![]));
             data_a.insert(b"k2".to_vec(), (b"v2".to_vec(), vec![]));
-            SSTable::write(
+            let _ = SSTable::write(
                 &sst_a_path,
                 data_a,
                 BTreeMap::new(),
@@ -258,7 +262,7 @@ mod tests {
             let mut data_b = BTreeMap::new();
             data_b.insert(b"k2".to_vec(), (b"v2_updated".to_vec(), vec![]));
             data_b.insert(b"k3".to_vec(), (b"v3".to_vec(), vec![]));
-            SSTable::write(
+            let _ = SSTable::write(
                 &sst_b_path,
                 data_b,
                 BTreeMap::new(),
@@ -274,7 +278,7 @@ mod tests {
             let mut data_c = BTreeMap::new();
             data_c.insert(b"k1".to_vec(), (b"v1_updated".to_vec(), vec![]));
             data_c.insert(b"k4".to_vec(), (b"v4".to_vec(), vec![]));
-            SSTable::write(
+            let _ = SSTable::write(
                 &sst_c_path,
                 data_c,
                 BTreeMap::new(),
@@ -348,7 +352,7 @@ mod tests {
 
                 let mut data1 = BTreeMap::new();
                 data1.insert(b"ts1".to_vec(), (original_values.clone(), vec![]));
-                SSTable::write(
+                let _ = SSTable::write(
                     &sst1_path,
                     data1,
                     BTreeMap::new(),
@@ -405,7 +409,7 @@ mod tests {
             let val = b"shared-global-value".to_vec();
             data1.insert(b"key1".to_vec(), (val.clone(), vec![]));
 
-            SSTable::write(
+            let _ = SSTable::write(
                 &sst1_path,
                 data1,
                 BTreeMap::new(),
