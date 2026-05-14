@@ -368,7 +368,7 @@ impl StorageEngine {
 
     pub async fn flush<P: AsRef<Path>>(&self, sstable_path: P) -> io::Result<()> {
         let (snapshot, tags) = self.memtable.snapshot();
-        SSTable::write(
+        let (min_val, max_val) = SSTable::write(
             sstable_path.as_ref(),
             snapshot.clone(),
             tags,
@@ -395,6 +395,8 @@ impl StorageEngine {
             size_bytes: std::fs::metadata(sstable_path.as_ref())?.len(),
             min_key,
             max_key,
+            min_val,
+            max_val,
         };
 
         self.metadatas.lock().await.push(meta);
@@ -456,7 +458,7 @@ mod tests {
                 let path = format!("test_l0_{}.sst", i);
                 let mut data = BTreeMap::new();
                 data.insert(format!("key{}", i).into_bytes(), (b"val".to_vec(), vec![]));
-                SSTable::write(
+                let _ = SSTable::write(
                     Path::new(&path),
                     data,
                     BTreeMap::new(),
@@ -476,6 +478,8 @@ mod tests {
                     size_bytes: fs::metadata(&path).unwrap().len(),
                     min_key: vec![],
                     max_key: vec![],
+                    min_val: None,
+                    max_val: None,
                 };
                 engine.metadatas.lock().await.push(meta);
             }
@@ -875,6 +879,8 @@ mod tests {
                 size_bytes: 100,
                 min_key: vec![],
                 max_key: vec![],
+                min_val: None,
+                max_val: None,
             };
             let meta2 = SSTableMetadata {
                 path: PathBuf::from(sst2_path),
@@ -884,6 +890,8 @@ mod tests {
                 size_bytes: 100,
                 min_key: vec![],
                 max_key: vec![],
+                min_val: None,
+                max_val: None,
             };
             engine2.metadatas.lock().await.push(meta1);
             engine2.metadatas.lock().await.push(meta2);
@@ -999,6 +1007,8 @@ mod tests {
                 size_bytes: 100,
                 min_key: vec![],
                 max_key: vec![],
+                min_val: None,
+                max_val: None,
             });
 
             // Run GC - v1 should be orphaned because it was dropped by compaction
