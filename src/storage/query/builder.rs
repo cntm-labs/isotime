@@ -77,20 +77,28 @@ impl QueryBuilder {
             let engine = Arc::clone(&self.engine);
             let plan = self.plan.clone();
             tasks.push(tokio::spawn(async move {
-                let sstable = SSTable::open(&meta.path, engine.encryption.as_deref(), &engine.io_pool)
-                    .await?;
-                
+                let sstable =
+                    SSTable::open(&meta.path, engine.encryption.as_deref(), &engine.io_pool)
+                        .await?;
+
                 let mut local_results = Vec::new();
                 let keys = if let Some(ref tag) = plan.tag {
                     sstable.get_by_tag(tag).await?
                 } else {
-                    // If no tag, we have to scan all entries for this SSTable 
+                    // If no tag, we have to scan all entries for this SSTable
                     // (In a real system we might use index for other filters)
-                    sstable.all_entries(Some(&engine.cas)).await?.into_iter().map(|(k, _)| k).collect()
+                    sstable
+                        .all_entries(Some(&engine.cas))
+                        .await?
+                        .into_iter()
+                        .map(|(k, _)| k)
+                        .collect()
                 };
 
                 for key in keys {
-                    if let Some((val, clock)) = sstable.get_with_clock(&key, Some(&engine.cas)).await? {
+                    if let Some((val, clock)) =
+                        sstable.get_with_clock(&key, Some(&engine.cas)).await?
+                    {
                         if Self::matches_static(&plan, &val, &clock) {
                             local_results.push((key, val));
                         }
@@ -114,10 +122,7 @@ impl QueryBuilder {
         }
 
         // 3. Final filtering: Remove tombstones and apply limit
-        let mut final_results: Vec<_> = merged
-            .into_iter()
-            .filter(|(_, v)| !v.is_empty())
-            .collect();
+        let mut final_results: Vec<_> = merged.into_iter().filter(|(_, v)| !v.is_empty()).collect();
 
         if self.plan.limit > 0 && final_results.len() > self.plan.limit {
             final_results.truncate(self.plan.limit);
