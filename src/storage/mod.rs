@@ -205,6 +205,9 @@ impl StorageEngine {
             }
         }
 
+        // 3. Save manifest if anything changed
+        self.manifest.save(metas_lock.clone())?;
+
         Ok(())
     }
 
