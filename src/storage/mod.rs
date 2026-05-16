@@ -20,6 +20,7 @@ use crate::storage::compressor::CompressionPolicy;
 use crate::storage::dashboard::DashboardServer;
 use crate::storage::encryption::EncryptionManager;
 use crate::storage::io_pool::IoPool;
+use crate::storage::manifest::ManifestManager;
 use crate::storage::memtable::MemTable;
 use crate::storage::query::QueryBuilder;
 use crate::storage::sstable::SSTable;
@@ -44,6 +45,7 @@ pub struct StorageEngine {
     pub cold_dir: PathBuf,
     pub dashboard_tx: broadcast::Sender<String>,
     pub io_pool: Arc<IoPool>,
+    pub manifest: Arc<ManifestManager>,
 }
 
 impl StorageEngine {
@@ -64,7 +66,14 @@ impl StorageEngine {
         }
 
         let cas = Arc::new(CASManager::new(cas_root, encryption.clone())?);
-        let metadatas = Arc::new(Mutex::new(Vec::new()));
+        let manifest = Arc::new(ManifestManager::new("manifest.json"));
+        let (metadatas_vec, _) = if let Some(m) = manifest.load()? {
+            (m.sstables, m.version)
+        } else {
+            (Vec::new(), 1)
+        };
+
+        let metadatas = Arc::new(Mutex::new(metadatas_vec));
         let (dashboard_tx, _) = broadcast::channel(1024);
         let io_pool = IoPool::new(1024);
 
@@ -79,6 +88,7 @@ impl StorageEngine {
             cold_dir: PathBuf::from("./cold"),
             dashboard_tx,
             io_pool,
+            manifest,
         })
     }
 
@@ -407,6 +417,12 @@ impl StorageEngine {
         };
 
         self.metadatas.lock().await.push(meta);
+
+        // Save manifest
+        {
+            let metas = self.metadatas.lock().await;
+            self.manifest.save(metas.clone())?;
+        }
 
         self.broadcast_to_dashboard(json!({
             "type": "log",
