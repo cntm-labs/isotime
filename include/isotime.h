@@ -15,9 +15,27 @@ typedef struct {
     size_t len;
 } isotime_buffer;
 
+typedef struct {
+    const uint8_t* key_data;
+    size_t key_len;
+    const uint8_t* val_data;
+    size_t val_len;
+} isotime_entry;
+
 void* isotime_open(const char* wal_path, const char* cas_path, const uint8_t* enc_key, ffi_compression_policy policy);
 void isotime_close(void* engine);
+void isotime_put(void* engine, const uint8_t* key, size_t key_len, const uint8_t* val, size_t val_len);
 isotime_buffer isotime_get(void* engine, const uint8_t* key, size_t key_len);
 void isotime_free_buffer(isotime_buffer buffer);
+
+// Query API
+void* isotime_query_new(void* engine);
+void isotime_query_tag(void* query, const char* tag);
+void isotime_query_range(void* query, double min, double max);
+void isotime_query_after(void* query, const uint64_t* clock_ptr, size_t clock_len);
+void* isotime_query_execute(void* query);
+
+isotime_entry isotime_result_next(void* result_set);
+void isotime_result_free(void* result_set);
 
 #endif

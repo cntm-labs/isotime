@@ -55,6 +55,7 @@ impl StorageEngine {
         policy: CompressionPolicy,
         cas_root: P2,
     ) -> io::Result<Self> {
+        let manifest_path = wal_path.as_ref().with_extension("manifest.json");
         let encryption = key.map(|k| Arc::new(EncryptionManager::new(&k)));
         let (wal, entries) = Wal::new(wal_path, encryption.clone()).await?;
         let memtable = MemTable::new();
@@ -66,7 +67,7 @@ impl StorageEngine {
         }
 
         let cas = Arc::new(CASManager::new(cas_root, encryption.clone())?);
-        let manifest = Arc::new(ManifestManager::new("manifest.json"));
+        let manifest = Arc::new(ManifestManager::new(manifest_path));
         let (metadatas_vec, _) = if let Some(m) = manifest.load()? {
             (m.sstables, m.version)
         } else {

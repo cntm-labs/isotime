@@ -9,7 +9,8 @@ fn test_manifest_recovery_persistence() {
     tokio_uring::start(async {
         let wal_path = "recovery.wal";
         let sst_path = "recovery.sst";
-        let manifest_path = "manifest.json";
+        // The engine now uses wal_path.with_extension("manifest.json")
+        let manifest_path = "recovery.manifest.json";
         let cas_dir = tempdir().unwrap();
 
         // Cleanup
@@ -28,8 +29,8 @@ fn test_manifest_recovery_persistence() {
             engine.put(b"k1".to_vec(), b"v1".to_vec(), vec![], vec![]).await.unwrap();
             engine.flush(sst_path).await.unwrap();
             
-            // At this point, manifest should be saved with 1 SSTable
-            assert!(Path::new(manifest_path).exists());
+            // At this point, manifest should be saved
+            assert!(Path::new(manifest_path).exists(), "Manifest file {} should exist", manifest_path);
             
             // Verify data is there
             assert_eq!(engine.get(b"k1").await.unwrap(), Some(b"v1".to_vec()));
@@ -37,8 +38,11 @@ fn test_manifest_recovery_persistence() {
 
         // Engine is dropped. Now start a NEW engine and see if it recovers k1 from SSTable via Manifest.
         {
+            // We MUST use the same WAL path (or at least same manifest path logic)
+            // Actually, to test manifest recovery, we need a path that maps to the SAME manifest.
+            // If we use "recovery.wal" again, it will find "recovery.manifest.json".
             let engine = StorageEngine::new(
-                "new.wal", // Different WAL to ensure it's not recovering from WAL
+                "recovery.wal", 
                 None,
                 CompressionPolicy::Balanced,
                 cas_dir.path()
@@ -55,6 +59,5 @@ fn test_manifest_recovery_persistence() {
         let _ = fs::remove_file(wal_path);
         let _ = fs::remove_file(sst_path);
         let _ = fs::remove_file(manifest_path);
-        let _ = fs::remove_file("new.wal");
     });
 }

@@ -31,7 +31,7 @@ impl ManifestManager {
         let content = fs::read_to_string(&self.path)?;
         let manifest: Manifest = serde_json::from_str(&content)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        
+
         Ok(Some(manifest))
     }
 
@@ -51,16 +51,16 @@ impl ManifestManager {
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
         let tmp_path = self.path.with_extension("json.tmp");
-        
+
         // Atomic write protocol
         fs::write(&tmp_path, json)?;
-        
-        // Ensure data is synced (using standard fs doesn't have a direct easy way for all OS, 
+
+        // Ensure data is synced (using standard fs doesn't have a direct easy way for all OS,
         // but for Manifest JSON, a simple rename is often atomic enough on POSIX).
         // In a real DB we would open the file and call sync_all().
-        
+
         fs::rename(&tmp_path, &self.path)?;
-        
+
         Ok(())
     }
 }
