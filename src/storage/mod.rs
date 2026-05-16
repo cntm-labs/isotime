@@ -6,6 +6,7 @@ pub mod compressor;
 pub mod dashboard;
 pub mod encryption;
 pub mod io_pool;
+pub mod manifest;
 pub mod memtable;
 pub mod query;
 pub mod sstable;
