@@ -1,0 +1,60 @@
+use isotime::storage::StorageEngine;
+use isotime::storage::compressor::CompressionPolicy;
+use tempfile::tempdir;
+use std::fs;
+use std::path::Path;
+
+#[test]
+fn test_manifest_recovery_persistence() {
+    tokio_uring::start(async {
+        let wal_path = "recovery.wal";
+        let sst_path = "recovery.sst";
+        let manifest_path = "manifest.json";
+        let cas_dir = tempdir().unwrap();
+
+        // Cleanup
+        let _ = fs::remove_file(wal_path);
+        let _ = fs::remove_file(sst_path);
+        let _ = fs::remove_file(manifest_path);
+
+        {
+            let engine = StorageEngine::new(
+                wal_path,
+                None,
+                CompressionPolicy::Balanced,
+                cas_dir.path()
+            ).await.unwrap();
+
+            engine.put(b"k1".to_vec(), b"v1".to_vec(), vec![], vec![]).await.unwrap();
+            engine.flush(sst_path).await.unwrap();
+            
+            // At this point, manifest should be saved with 1 SSTable
+            assert!(Path::new(manifest_path).exists());
+            
+            // Verify data is there
+            assert_eq!(engine.get(b"k1").await.unwrap(), Some(b"v1".to_vec()));
+        }
+
+        // Engine is dropped. Now start a NEW engine and see if it recovers k1 from SSTable via Manifest.
+        {
+            let engine = StorageEngine::new(
+                "new.wal", // Different WAL to ensure it's not recovering from WAL
+                None,
+                CompressionPolicy::Balanced,
+                cas_dir.path()
+            ).await.unwrap();
+
+            // Should recover 1 metadata entry
+            assert_eq!(engine.metadatas.lock().await.len(), 1);
+
+            // Should find k1
+            assert_eq!(engine.get(b"k1").await.unwrap(), Some(b"v1".to_vec()));
+        }
+
+        // Cleanup
+        let _ = fs::remove_file(wal_path);
+        let _ = fs::remove_file(sst_path);
+        let _ = fs::remove_file(manifest_path);
+        let _ = fs::remove_file("new.wal");
+    });
+}
