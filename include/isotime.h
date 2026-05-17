@@ -5,6 +5,14 @@
 #include <stdint.h>
 
 typedef enum {
+    ISOTIME_OK = 0,
+    ISOTIME_ERR_IO = 1,
+    ISOTIME_ERR_NOT_FOUND = 2,
+    ISOTIME_ERR_INVALID_QUERY = 3,
+    ISOTIME_ERR_INTERNAL = 99
+} isotime_status;
+
+typedef enum {
     FASTEST = 0,
     BALANCED = 1,
     EXTREME_SPACE = 2
@@ -27,6 +35,12 @@ void isotime_close(void* engine);
 void isotime_put(void* engine, const uint8_t* key, size_t key_len, const uint8_t* val, size_t val_len);
 isotime_buffer isotime_get(void* engine, const uint8_t* key, size_t key_len);
 void isotime_free_buffer(isotime_buffer buffer);
+
+// Maintenance API
+int isotime_delete(void* engine, const uint8_t* key, size_t key_len);
+int isotime_flush(void* engine);
+int isotime_run_maintenance(void* engine);
+int isotime_run_cas_gc(void* engine);
 
 // Query API
 void* isotime_query_new(void* engine);
