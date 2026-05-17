@@ -3,6 +3,13 @@ from memory import Pointer
 from ffi import DLHandle, ExternalCompilationUnit
 from buffer import Buffer
 
+# Status Codes
+alias ISOTIME_OK = 0
+alias ISOTIME_ERR_IO = 1
+alias ISOTIME_ERR_NOT_FOUND = 2
+alias ISOTIME_ERR_INVALID_QUERY = 3
+alias ISOTIME_ERR_INTERNAL = 99
+
 @value
 struct IsotimeBuffer(CollectionElement):
     var data: Pointer[UInt8]
@@ -151,6 +158,39 @@ struct Isotime:
         let result = String(res_buffer.data, res_buffer.len)
         free_fn(res_buffer)
         return result
+
+    fn delete(self, key: String) -> Int:
+        if self.engine.is_null():
+            return ISOTIME_ERR_INTERNAL
+        let del_fn = self.handle.get_function[
+            fn(Pointer[None], Pointer[UInt8], Int) -> Int
+        ]("isotime_delete")
+        let key_bytes = key.as_bytes()
+        return del_fn(self.engine, key_bytes.as_ptr(), len(key_bytes))
+
+    fn flush(self) -> Int:
+        if self.engine.is_null():
+            return ISOTIME_ERR_INTERNAL
+        let flush_fn = self.handle.get_function[
+            fn(Pointer[None]) -> Int
+        ]("isotime_flush")
+        return flush_fn(self.engine)
+
+    fn run_maintenance(self) -> Int:
+        if self.engine.is_null():
+            return ISOTIME_ERR_INTERNAL
+        let maint_fn = self.handle.get_function[
+            fn(Pointer[None]) -> Int
+        ]("isotime_run_maintenance")
+        return maint_fn(self.engine)
+
+    fn run_gc(self) -> Int:
+        if self.engine.is_null():
+            return ISOTIME_ERR_INTERNAL
+        let gc_fn = self.handle.get_function[
+            fn(Pointer[None]) -> Int
+        ]("isotime_run_cas_gc")
+        return gc_fn(self.engine)
 
     fn query(self) -> Query:
         let query_new_fn = self.handle.get_function[
