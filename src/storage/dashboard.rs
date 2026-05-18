@@ -6,7 +6,6 @@ use tokio::sync::broadcast;
 use tokio_tungstenite::accept_hdr_async;
 use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 use tokio_tungstenite::tungstenite::protocol::Message;
-use tokio_tungstenite::tungstenite::Error;
 
 pub struct DashboardServer {
     tx: broadcast::Sender<String>,
@@ -54,9 +53,10 @@ impl DashboardServer {
                 }
             }
             // If token mismatch or missing, reject with 401
-            Err(Error::Http(
-                Response::builder().status(401).body(None).unwrap(),
-            ))
+            Err(Response::builder()
+                .status(401)
+                .body(Some("Unauthorized".to_string()))
+                .unwrap())
         };
 
         let ws_stream = accept_hdr_async(stream, callback).await?;

@@ -1,0 +1,9 @@
+[engine]
+wal_path = "isotime.wal"
+cas_root = "cas_store"
+encryption_key = "0000000000000000000000000000000000000000000000000000000000000000"
+
+[dashboard]
+enabled = true
+addr = "127.0.0.1:9000"
+admin_token = "isotime_secret_2026"
