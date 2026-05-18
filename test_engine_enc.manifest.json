@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "created_at": 1779129942,
+  "sstables": [
+    {
+      "path": "test_engine_enc.sst",
+      "tier": "L0",
+      "window_start": 1779129942,
+      "window_end": 1779129942,
+      "size_bytes": 180,
+      "min_key": [
+        115,
+        101,
+        99,
+        117,
+        114,
+        101,
+        95,
+        107,
+        101,
+        121
+      ],
+      "max_key": [
+        115,
+        101,
+        99,
+        117,
+        114,
+        101,
+        95,
+        107,
+        101,
+        121
+      ],
+      "min_val": null,
+      "max_val": null
+    }
+  ]
+}
