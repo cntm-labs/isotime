@@ -1,3 +1,4 @@
+use isotime::config::Settings;
 use isotime::storage::compressor::CompressionPolicy;
 use isotime::storage::io_pool::IoPool;
 use isotime::storage::sstable::SSTable;
@@ -11,8 +12,22 @@ use std::sync::Arc;
 async fn main() -> io::Result<()> {
     println!("isotime: High-Throughput Time-Series Engine starting (io_uring)...");
 
-    let cas_root = "cas_store";
-    let encryption_key = Some([0u8; 32]);
+    // Load Settings
+    let settings = Settings::new().map_err(|e| io::Error::other(format!("Config error: {}", e)))?;
+    println!("Configuration loaded successfully.");
+
+    let encryption_key = if let Some(ref k_hex) = settings.engine.encryption_key {
+        let decoded = hex::decode(k_hex).map_err(|e| io::Error::other(format!("Invalid hex key: {}", e)))?;
+        if decoded.len() != 32 {
+            return Err(io::Error::other("Encryption key must be 32 bytes (64 hex chars)"));
+        }
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&decoded);
+        Some(key)
+    } else {
+        None
+    };
+
     let io_pool = IoPool::new(1024);
 
     // Use a temporary scope for demos
@@ -48,19 +63,21 @@ async fn main() -> io::Result<()> {
             let _ = std::fs::remove_file(path);
         }
 
-        // Initialize storage engine with Balanced policy
+        // Initialize storage engine with settings
         let engine = Arc::new(
             StorageEngine::new(
-                "isotime.wal",
+                &settings.engine.wal_path,
                 encryption_key,
-                CompressionPolicy::Balanced,
-                cas_root,
+                CompressionPolicy::Balanced, // We can also add this to config
+                &settings.engine.cas_root,
             )
             .await?,
         );
 
         // Start Dashboard WebSocket Server
-        engine.start_dashboard_server("127.0.0.1:9000".to_string());
+        if settings.dashboard.enabled {
+            engine.start_dashboard_server(settings.dashboard.addr.clone());
+        }
 
         // --- Demo 1: Value Sharing (De-duplication) ---
         println!("\n--- Demo 1: Value Sharing (De-duplication) ---");
@@ -140,7 +157,7 @@ async fn main() -> io::Result<()> {
         );
         println!(
             "Global CAS objects count: {}",
-            std::fs::read_dir(cas_root)?.count()
+            std::fs::read_dir(&settings.engine.cas_root)?.count()
         );
 
         // --- Demo 5: Tag Indexing ---
@@ -199,7 +216,7 @@ async fn main() -> io::Result<()> {
             "dummy.wal",
             Some(wrong_key),
             CompressionPolicy::Fastest,
-            cas_root,
+            &settings.engine.cas_root,
         )
         .await?;
 
@@ -279,8 +296,9 @@ async fn main() -> io::Result<()> {
         let _ = std::fs::remove_file("cas1.sst");
         let _ = std::fs::remove_file("cas2.sst");
         let _ = std::fs::remove_file("final.db");
-        let _ = std::fs::remove_file("isotime.wal");
-        let _ = std::fs::remove_dir_all(cas_root);
+        let _ = std::fs::remove_file(&settings.engine.wal_path);
+        let _ = std::fs::remove_file(format!("{}.manifest.json", settings.engine.wal_path));
+        let _ = std::fs::remove_dir_all(&settings.engine.cas_root);
     }
 
     println!("\nisotime: Engine shut down gracefully.");
