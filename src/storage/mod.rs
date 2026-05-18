@@ -97,8 +97,8 @@ impl StorageEngine {
         QueryBuilder::new(Arc::clone(self))
     }
 
-    pub fn start_dashboard_server(&self, addr: String) {
-        let server = Arc::new(DashboardServer::new(self.dashboard_tx.clone()));
+    pub fn start_dashboard_server(&self, addr: String, admin_token: String) {
+        let server = Arc::new(DashboardServer::new(self.dashboard_tx.clone(), admin_token));
         tokio::spawn(async move {
             if let Err(e) = server.start(addr).await {
                 eprintln!("Dashboard server error: {}", e);

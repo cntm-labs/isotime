@@ -76,7 +76,7 @@ async fn main() -> io::Result<()> {
 
         // Start Dashboard WebSocket Server
         if settings.dashboard.enabled {
-            engine.start_dashboard_server(settings.dashboard.addr.clone());
+            engine.start_dashboard_server(settings.dashboard.addr.clone(), settings.dashboard.admin_token.clone());
         }
 
         // --- Demo 1: Value Sharing (De-duplication) ---
